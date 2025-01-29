@@ -14,6 +14,11 @@
 #include <time.h>
 #include <string.h>
 #include<unistd.h>
+#include <locale.h>
+
+#define CUSTOM_ORANGE 10
+#define CUSTOM_PINK 11
+
 
 typedef struct {
     int y;
@@ -33,7 +38,8 @@ typedef struct {
 typedef struct 
 {
     Position position;
-
+    int password;
+    int is_open;
     /* data */
 }Door;
 
@@ -43,17 +49,21 @@ typedef struct
 
 }Trap;
 
+
 typedef struct {
     Position position;
     int width;
     int height;
     Door* doors; 
+    Door pass_door;
     // Position window;
     Position* object;
+    Position pass_key;
     Trap* traps;
     int num_traps;
     int num_doors;
     int num_objects;
+    int num_pass_door;
 } Room;
 
 typedef struct {
@@ -85,6 +95,8 @@ typedef struct {
     int height;
 } Level;
 
+
+
 typedef struct {
     pthread_t thread;          // رشته موسیقی
     int is_playing;            // وضعیت پخش (1 = در حال پخش، 0 = متوقف)
@@ -93,16 +105,34 @@ typedef struct {
 } Music;
 
 typedef struct {
+    int total_time; // کل زمان بازی
+    int penalty;    // مقدار کاهش جان بازیکن در هر جریمه
+    int update_interval; // بازه زمانی کاهش جان
+} GameTimer;
+
+typedef struct {
+    int minute;
+    int second;
+}Timer;
+
+typedef struct {
     Player player;
     Level *levels;
     int total_levels;
     int current_level;
+    Timer timer;
 } Game;
+
+typedef struct {
+    Game* game;
+    Room* room;
+} ThreadArgs;
 
 
 
 void firstMenu();
-void rand_color();
+void creat_color();
+// void rand_color();
 void draw_border();
 void signUp_menu();
 void logIn_menu();
@@ -137,6 +167,11 @@ void next_level(Game* game);
 void init_game(int n, User user);
 void load_game(Game* game , User user);
 void save_game(Game *game, User user);
+void init_game_timer(GameTimer *timer);
+void *game_timer_thread(void *arg);
+int create_window(int start_y, int start_x, int height, int width, int max_length, char *input, int pass);
+int open_pass_door(Room* room , Game* game);
+void* creat_password(void* arg);
 // void free_level(Level *level);
 // void connect_rooms_with_mst(Room *rooms, int num_rooms, char **map, int width, int height, Corridor **corridors, int *num_corridors);
 // void connect_rooms(Room *rooms, int num_rooms, char **map, Corridor **corridors, int *num_corridors);
@@ -156,14 +191,31 @@ void save_game(Game *game, User user);
 int main(){
     
     initscr();
+    setlocale(LC_ALL, "");
     curs_set(FALSE);
     keypad(stdscr, TRUE);
     start_color();
+
+    init_color(CUSTOM_ORANGE, 1000, 500, 0);
+    init_color(CUSTOM_PINK, 1000, 400, 800);
+
+    init_pair(1, COLOR_WHITE, COLOR_BLACK);
+    init_pair(2, COLOR_GREEN, COLOR_BLACK);
+    init_pair(3, COLOR_YELLOW, COLOR_BLACK);
+    init_pair(5, COLOR_RED, COLOR_BLACK);
+    init_pair(4, CUSTOM_ORANGE, COLOR_BLACK);
+    // init_pair(5, CUSTOM_ORANGE, COLOR_BLACK);
+    init_pair(6, CUSTOM_PINK, COLOR_BLACK);
+
     srand(time(0));
     // rand_color();
     firstMenu();
     endwin();
 }
+
+// void creat_color(){
+
+// }
 
 void firstMenu(){
     
@@ -221,164 +273,236 @@ void firstMenu(){
     }     
 }
 
+
 void signUp_menu() {
-    
     char username[50] = {0};
     char password[20] = {0};
     char email[50] = {0};
-    // FILE* file = fopen("userpass.txt" , "a+");
+    WINDOW *username_box, *password_box, *email_box;
+    int username_index = 0, password_index = 0, email_index = 0;
+    int active_box = 0; // 0: username, 1: password, 2: email
 
+    
+    curs_set(1);
+
+    
+    clear();
+    draw_border();  
+    refresh();
+
+    
+    mvprintw(LINES / 2 - 2, COLS / 2 - 15, "Sign Up Menu");
+    mvprintw(LINES / 2, COLS / 2 - 15, "Enter your username:");
+    mvprintw(LINES / 2 + 4, COLS / 2 - 15, "Enter your password:");
+    mvprintw(LINES / 2 + 8, COLS / 2 - 15, "Enter your email:");
+    refresh();
+
+    
+    username_box = newwin(3, 32, LINES / 2 + 1, COLS / 2 - 15);
+    password_box = newwin(3, 32, LINES / 2 + 5, COLS / 2 - 15);
+    email_box = newwin(3, 32, LINES / 2 + 9, COLS / 2 - 15);
+
+    box(username_box, 0, 0);
+    box(password_box, 0, 0);
+    box(email_box, 0, 0);
+
+    wrefresh(username_box);
+    wrefresh(password_box);
+    wrefresh(email_box);
 
     while (1) {
-        clear();
-        refresh();
-        draw_border();
+        wmove(active_box == 0 ? username_box : (active_box == 1 ? password_box : email_box),
+              1, active_box == 0 ? username_index + 1 : (active_box == 1 ? password_index + 1 : email_index + 1));
+        wrefresh(active_box == 0 ? username_box : (active_box == 1 ? password_box : email_box));
 
-        
-        mvprintw(LINES / 2, COLS / 2 - 15, "Enter your username:");
-        mvprintw(LINES / 2 + 4, COLS / 2 - 15, "Enter your password:");
-        mvprintw(LINES / 2 + 8, COLS / 2 - 15, "Enter your email:");
-        refresh();
+        int ch = wgetch(active_box == 0 ? username_box : (active_box == 1 ? password_box : email_box));
 
-        
-        create_textbox(LINES / 2 + 1, COLS / 2 - 15, 30, 25, username);
-        create_textbox(LINES / 2 + 5, COLS / 2 - 15, 30, 25, password);
-        create_textbox(LINES / 2 + 9, COLS / 2 - 15, 30, 25, email);
-        refresh();
-        
-        int valid = 1;
-
-        
-        int greatword = 0, smallword = 0, digit = 0;
-        for (int i = 0; i < strlen(password); i++) {
-            if (password[i] >= 'a' && password[i] <= 'z')
-                smallword++;
-            else if (password[i] >= 'A' && password[i] <= 'Z')
-                greatword++;
-            else if (password[i] >= '0' && password[i] <= '9')
-                digit++;
-        }
-        if (strlen(password) < 7 || greatword == 0 || smallword == 0 || digit == 0) {
-            mvprintw(LINES / 2 - 4, COLS / 2 - 15, "Invalid Password. Please try again.");
-            refresh();
-            valid = 0;
-        }
-
-        // اعتبارسنجی ایمیل
-        if (!validate_email(email)) {
-            mvprintw(LINES / 2 -6, COLS / 2 - 15, "Invalid email address. Please try again.");
-            refresh();
-            valid = 0;
-        }
-
-        if (valid) {
-            // mvprintw(LINES / 2 -8, COLS / 2 - 15, "Registration successful!");
-            break;
-            // getch();
-            // break; 
-        } else {
+        if (ch == '\t') {
             
-            memset(username, 0, sizeof(username));
-            memset(password, 0, sizeof(password));
-            memset(email, 0, sizeof(email));
-            getch(); 
+            active_box = (active_box + 1) % 3;
+        } else if (ch == '\n') {
+            
+            if (active_box == 2) break;
+            active_box = (active_box + 1) % 3;
+        } else if (ch == KEY_BACKSPACE || ch == 127) {
+           
+            if (active_box == 0 && username_index > 0) {
+                username[--username_index] = '\0';
+                mvwaddch(username_box, 1, username_index + 1, ' ');
+                wmove(username_box, 1, username_index + 1);
+                wrefresh(username_box);
+            } else if (active_box == 1 && password_index > 0) {
+                password[--password_index] = '\0';
+                mvwaddch(password_box, 1, password_index + 1, ' ');
+                wmove(password_box, 1, password_index + 1);
+                wrefresh(password_box);
+            } else if (active_box == 2 && email_index > 0) {
+                email[--email_index] = '\0';
+                mvwaddch(email_box, 1, email_index + 1, ' ');
+                wmove(email_box, 1, email_index + 1);
+                wrefresh(email_box);
+            }
+        } else if (isprint(ch)) {
+            
+            if (active_box == 0 && username_index < sizeof(username) - 1) {
+                username[username_index++] = ch;
+                mvwaddch(username_box, 1, username_index, ch);
+                wrefresh(username_box);
+            } else if (active_box == 1 && password_index < sizeof(password) - 1) {
+                password[password_index++] = ch;
+                mvwaddch(password_box, 1, password_index, '*'); 
+                wrefresh(password_box);
+            } else if (active_box == 2 && email_index < sizeof(email) - 1) {
+                email[email_index++] = ch;
+                mvwaddch(email_box, 1, email_index, ch);
+                wrefresh(email_box);
+            }
         }
     }
 
+
+    delwin(username_box);
+    delwin(password_box);
+    delwin(email_box);
     refresh();
-    if (checkSignUp(username , password))
-    {
-        mvprintw(LINES / 2 -8, COLS / 2 - 15, "You are already Registered");
-        refresh(); 
-        sleep(1);
-        clear(); 
-        logIn_menu();
+
+
+    curs_set(0);
+
+
+    int valid = 1;
+    int greatword = 0, smallword = 0, digit = 0;
+    for (int i = 0; i < strlen(password); i++) {
+        if (password[i] >= 'a' && password[i] <= 'z') smallword++;
+        else if (password[i] >= 'A' && password[i] <= 'Z') greatword++;
+        else if (password[i] >= '0' && password[i] <= '9') digit++;
     }
-    else{
-        mvprintw(LINES / 2 -8, COLS / 2 - 15, "Registration successful!");
-        refresh(); 
-        sleep(1);
-        clear(); 
+    if (strlen(password) < 7 || greatword == 0 || smallword == 0 || digit == 0) {
+        mvprintw(LINES / 2 - 4, COLS / 2 - 15, "Invalid Password. Must have 7+ chars, uppercase, lowercase, digit.");
+        refresh();
+        sleep(2);
+        signUp_menu(); // بازگشت به منوی ثبت‌نام
+        return;
+    }
+
+    // اعتبارسنجی ایمیل
+    if (!validate_email(email)) {
+        mvprintw(LINES / 2 - 6, COLS / 2 - 15, "Invalid Email Address!");
+        refresh();
+        sleep(2);
+        signUp_menu(); // بازگشت به منوی ثبت‌نام
+        return;
+    }
+
+    // ذخیره اطلاعات کاربر
+    if (checkSignUp(username, password)) {
+        mvprintw(LINES / 2 - 8, COLS / 2 - 15, "You are already registered. Redirecting to Login.");
+        refresh();
+        sleep(2);
+        logIn_menu();
+    } else {
+        mvprintw(LINES / 2 - 8, COLS / 2 - 15, "Registration successful!");
+        refresh();
+        sleep(2);
         logIn_menu();
     }
 }
 
-void logIn_menu(){
+void logIn_menu() {
     char username[50] = {0};
     char password[20] = {0};
+    WINDOW *username_box, *password_box;
+    int username_index = 0, password_index = 0;
+    int active_box = 0; // 0 برای username، 1 برای password
+
+    
+    curs_set(1);
+
+    
+    clear();
+    draw_border();  
+    refresh();
+
+    
+    mvprintw(LINES / 2 - 2, COLS / 2 - 15, "Login Menu");
+    mvprintw(LINES / 2, COLS / 2 - 15, "Enter your username:");
+    mvprintw(LINES / 2 + 4, COLS / 2 - 15, "Enter your password:");
+    refresh();
+
+    
+    username_box = newwin(3, 32, LINES / 2 + 1, COLS / 2 - 15);
+    password_box = newwin(3, 32, LINES / 2 + 5, COLS / 2 - 15);
+    box(username_box, 0, 0);
+    box(password_box, 0, 0);
+    wrefresh(username_box);
+    wrefresh(password_box);
 
     while (1) {
-        clear();
-        refresh();
-        draw_border();
+        
+        wmove(active_box == 0 ? username_box : password_box, 1, active_box == 0 ? username_index + 1 : password_index + 1);
+        wrefresh(active_box == 0 ? username_box : password_box);
 
-        // نمایش متن‌ها
-        mvprintw(LINES / 2, COLS / 2 - 15, "Enter your username:");
-        mvprintw(LINES / 2 + 4, COLS / 2 - 15, "Enter your password:");
-        // mvprintw(LINES / 2 + 8, COLS / 2 - 15, "Enter your email:");
-        refresh();
+        int ch = wgetch(active_box == 0 ? username_box : password_box);
 
-
-        create_textbox(LINES / 2 + 1, COLS / 2 - 15, 30, 25, username);
-        create_textbox(LINES / 2 + 5, COLS / 2 - 15, 30, 25, password);
-        // create_textbox(LINES / 2 + 9, COLS / 2 - 15, 30, 25, email);
-        refresh();
-
-        int valid = 1;
-
-        int greatword = 0, smallword = 0, digit = 0;
-        for (int i = 0; i < strlen(password); i++) {
-            if (password[i] >= 'a' && password[i] <= 'z')
-                smallword++;
-            else if (password[i] >= 'A' && password[i] <= 'Z')
-                greatword++;
-            else if (password[i] >= '0' && password[i] <= '9')
-                digit++;
-        }
-        if (strlen(password) < 7 || greatword == 0 || smallword == 0 || digit == 0) {
-            mvprintw(LINES / 2 - 4, COLS / 2 - 15, "Invalid Password. Please try again.");
-            refresh();
-            valid = 0;
-        }
-        // if (!validate_email(email)) {
-        //     mvprintw(LINES / 2 -6, COLS / 2 - 15, "Invalid email address. Please try again.");
-        //     refresh();
-        //     valid = 0;
-        // }
-
-        if (valid) {
-            // mvprintw(LINES / 2 -8, COLS / 2 - 15, "Registration successful!");
-            break;
-            // getch(); 
-        } else {
-            // پاک کردن ورودی‌ها برای تلاش مجدد
-            memset(username, 0, sizeof(username));
-            memset(password, 0, sizeof(password));
-            // memset(email, 0, sizeof(email));
-            getch(); 
+        if (ch == '\t') {
+            
+            active_box = 1 - active_box;
+        } else if (ch == '\n') {
+            
+            if (active_box == 1) break;
+            active_box = 1; 
+        } else if (ch == KEY_BACKSPACE || ch == 127) {
+            
+            if (active_box == 0 && username_index > 0) {
+                username[--username_index] = '\0';
+                mvwaddch(username_box, 1, username_index + 1, ' ');
+                wmove(username_box, 1, username_index + 1);        
+                wrefresh(username_box);
+            } else if (active_box == 1 && password_index > 0) {
+                password[--password_index] = '\0';
+                mvwaddch(password_box, 1, password_index + 1, ' ');
+                wmove(password_box, 1, password_index + 1);        
+                wrefresh(password_box);
+            }
+        } else if (isprint(ch)) {
+            // اضافه کردن کاراکتر
+            if (active_box == 0 && username_index < sizeof(username) - 1) {
+                username[username_index++] = ch;
+                mvwaddch(username_box, 1, username_index, ch); 
+                wrefresh(username_box);
+            } else if (active_box == 1 && password_index < sizeof(password) - 1) {
+                password[password_index++] = ch;
+                mvwaddch(password_box, 1, password_index, '*');
+                wrefresh(password_box);
+            }
         }
     }
 
+
+    delwin(username_box);
+    delwin(password_box);
     refresh();
-    if (checkLogIn(username , password))
-    {
+
+
+    curs_set(0);
+
+
+    if (checkLogIn(username, password)) {
         User user;
-        strcpy(user.user_name , username);
-        strcpy(user.password , password);
-        mvprintw(LINES / 2 -8, COLS / 2 - 15, "You");
+        strcpy(user.user_name, username);
+        strcpy(user.password, password);
+        mvprintw(LINES / 2 - 8, COLS / 2 - 15, "Login successful!");
         refresh();
         sleep(2);
         clear();
         gameMenu(user);
-    }
-    else{
-        mvprintw(LINES / 2 -8, COLS / 2 - 15, "You should signing up first");
-        refresh(); 
-        sleep(1);
-        clear(); 
+    } else {
+        mvprintw(LINES / 2 - 8, COLS / 2 - 15, "Invalid credentials! Please try signing up.");
+        refresh();
+        sleep(2);
+        clear();
         signUp_menu();
     }
-
 }
 
 void gameMenu(User user){
@@ -387,12 +511,12 @@ void gameMenu(User user){
     refresh();
     draw_border();
 
-    // تعریف نام دکمه‌ها
+
     char *choices[] = {"New Game", "Load Game", "Point Schedule", "Settings"};
     int num_choices = 4;
     int choice = 0;
 
-    // موقعیت دکمه‌ها
+    
     int start_y = LINES / 2 - 6;
     int start_x = COLS / 2 - 12;
 
@@ -406,8 +530,8 @@ void gameMenu(User user){
             // WINDOW *button = (COLS / 2 - 12 + i*4,LINES / 2 - 6,24, 3,choices[i]);
             if (i == choice) {
                 // دکمه انتخاب‌شده
-                // wbkgd(button, COLOR_PAIR(2)); // تغییر رنگ پس‌زمینه
-                wattron(button, A_BOLD);      // حاشیه برجسته
+                // wbkgd(button, COLOR_PAIR(2));
+                wattron(button, A_BOLD);      
             } else {
                 // wbkgd(button, COLOR_PAIR(1)); 
                 wattroff(button, A_BOLD);
@@ -607,6 +731,11 @@ void init_game(int n , User user){
         load_game(&game , user);
         // game.current_level = 0;
     }
+
+
+    pthread_t timer_thread;
+    // TimerArgs timer_args = {&game, 300}; 
+    pthread_create(&timer_thread, NULL, game_timer_thread, &game);
     // Game loop
     int key;
     while (1) {
@@ -631,6 +760,56 @@ void init_game(int n , User user){
     endwin();
     // return 0;
 }
+
+void init_game_timer(GameTimer *timer) {
+    timer->total_time = 300;
+    timer->penalty = 10;     
+    timer->update_interval = 30;
+}
+
+void *game_timer_thread(void *arg) {
+    Game *game = (Game *)arg;
+    GameTimer timer;
+    init_game_timer(&timer);
+    Level *level = &game->levels[game->current_level];
+
+    while (timer.total_time > 0) {
+        sleep(1);
+        timer.total_time--;
+
+        
+        if (timer.total_time % timer.update_interval == 0) {
+            game->player.hp -= timer.penalty;
+        }
+
+        game->timer.minute = timer.total_time / 60;
+        game->timer.second = timer.total_time % 60;
+        
+        // mvprintw(level->height + 3, 0, "Time Remaining: %02d:%02d", timer.total_time / 60, timer.total_time % 60);
+        // mvprintw(level->height + 4, 0, "Player HP: %d", game->player.hp);
+
+        
+        if (game->player.hp <= 0) {
+            clear();
+            mvprintw(level->height + 6, 0, "Game Over! You lost.");
+            refresh();
+            sleep(3);
+            endwin();
+            exit(0);
+        }
+
+        refresh();
+    }
+
+    
+    clear();
+    mvprintw(level->height + 6, 0, "Game Over! Time's up.");
+    refresh();
+    sleep(3);
+    endwin();
+    exit(0);
+}
+
 
 void next_level(Game* game){
 
@@ -690,12 +869,14 @@ Room create_room(int y, int x, int width, int height) {
     room.position.x = x;
     room.width = width;
     room.height = height;
-    room.num_doors = 1 + rand() % 3;
+    room.num_doors = 1 + rand() % 2;
     room.num_objects = rand() % 2;
     room.num_traps = 1 + rand() % 2;///level
     room.doors = malloc(room.num_doors * sizeof(Door));
     room.object = malloc(room.num_objects * sizeof(Position));
     room.traps = malloc(room.num_traps * sizeof(Trap));
+    room.num_pass_door = rand()%2;
+    // room.pass_door = malloc(room.num_pass_door * sizeof(Door));
 
 
     for (int i = 0; i < room.num_doors; i++) {
@@ -720,6 +901,40 @@ Room create_room(int y, int x, int width, int height) {
                 break;
         }
     }
+
+    if (room.num_pass_door)
+    {
+        int side = rand() % 4; 
+
+        switch (side) {///if , else if
+            case 0: 
+                room.pass_door.position.y = y; 
+                room.pass_door.position.x = x + 1 + rand() % (width - 2);
+                room.pass_key.y = y+1;
+                room.pass_key.x = x+1;
+                break;
+            case 1: 
+                room.pass_door.position.y = y + height - 1; 
+                room.pass_door.position.x = x + 1 + rand() % (width - 2);
+                room.pass_key.y = y + height - 2;
+                room.pass_key.x = x + width - 2; 
+                break;
+            case 2: 
+                room.pass_door.position.y = y + 1 + rand() % (height - 2); 
+                room.pass_door.position.x = x;
+                room.pass_key.y = y + height - 2;
+                room.pass_key.x = x +1; 
+                break;
+            case 3: 
+                room.pass_door.position.y = y + 1 + rand() % (height - 2); 
+                room.pass_door.position.x = x + width - 1; 
+                room.pass_key.y = y + 1;
+                room.pass_key.x = x + width - 2;
+                break;
+        }
+        room.pass_door.is_open = 0;
+    }
+    
     for (int i = 0; i < room.num_objects; i++)
     {
         room.object[i].x = x + 1 + rand() % (width - 2);
@@ -791,6 +1006,10 @@ void add_room_to_map(Room room, char **map, int s) {
     {
         map[room.traps[i].position.y][room.traps[i].position.x] = 'T';
     }
+    for(int i =0; i< room.num_pass_door; i++){
+        map[room.pass_door.position.y][room.pass_door.position.x] = '@';
+        map[room.pass_key.y][room.pass_key.x] = '&';
+    }
     if (s == 1)
     {
         map[room.position.y + 1 +rand() % (room.height - 2)][room.position.x + 1 +rand() % (room.width - 2)] = 'S';
@@ -803,7 +1022,7 @@ void reveal_room(Room room, char **map, char** drawMap) {
     for (int i = 0; i < room.height; i++) {
         for (int j = 0; j < room.width; j++) {
             char current_char = map[room.position.y + i][room.position.x + j];
-            if (current_char == '-' || current_char == '|' || current_char == '.' || current_char == '+' || current_char == 'O' || current_char == 'T' || current_char == 'S') {
+            if (current_char == '-' || current_char == '|' || current_char == '.' || current_char == '+' || current_char == 'O' || current_char == 'T' || current_char == 'S'|| current_char == '@' || current_char == '&') {
                 // map[room.position.y + i][room.position.x + j] = current_char;
                 if (current_char == 'T')
                 {
@@ -823,19 +1042,19 @@ void reveal_corridor(Position start, char **map , char** draw_map){
         char current_char3 = map[start.y - 1][start.x];
         char current_char4 = map[start.y][start.x - 1];
 
-        if (current_char1 == '#' || current_char1 == '+')
+        if (current_char1 == '#' || current_char1 == '+' || current_char1 == '@')
         {
             draw_map[start.y + 1][start.x] = current_char1;
         }
-        if (current_char2 == '#' || current_char2 == '+')
+        if (current_char2 == '#' || current_char2 == '+' || current_char2 == '@')
         {
             draw_map[start.y][start.x + 1] = current_char2;
         }
-        if (current_char3 == '#' || current_char3 == '+')
+        if (current_char3 == '#' || current_char3 == '+' || current_char3 == '@')
         {
             draw_map[start.y - 1][start.x] = current_char3;
         }
-        if (current_char4 == '#' || current_char4 == '+')
+        if (current_char4 == '#' || current_char4 == '+' || current_char4 == '@')
         {
             draw_map[start.y][start.x - 1] = current_char4;
         }
@@ -866,7 +1085,7 @@ int bfs_corridor(char **map, Position start, Position target, int width, int hei
             int newY = pos.y + deltaY[i];
 
             if (newX >= 0 && newX < width && newY > 0 && newY < height &&
-                (map[newY][newX] == ' '|| map[newY][newX] == '+' || map[newY][newX] == '#') && !visited[newY][newX]) {
+                (map[newY][newX] == ' '|| map[newY][newX] == '+'|| map[newY][newX] == '@' || map[newY][newX] == '#') && !visited[newY][newX]) {
                 visited[newY][newX] = 1;
                 parent[newY][newX] = pos;
                 queue[rear++] = (QueueNode){{newY, newX}, current.distance + 1};
@@ -885,6 +1104,84 @@ int compareEdges(const void *a, const void *b) {
 }
 
 
+// void connect_rooms_with_bfs(Room *rooms, int num_rooms, char **map, int width, int height, Corridor **corridors, int *num_corridors) {
+//     *num_corridors = 0;
+//     *corridors = malloc(1000 * sizeof(Corridor)); 
+
+//     int **visited = malloc(height * sizeof(int *));
+//     Position **parent = malloc(height * sizeof(Position *));
+//     for (int i = 0; i < height; i++) {
+//         visited[i] = calloc(width, sizeof(int));
+//         parent[i] = malloc(width * sizeof(Position));
+//     }
+
+
+//     // Edge *edges = malloc(num_rooms * num_rooms * sizeof(Edge));
+//     // int edge_count = 0;
+
+
+//     // محاسبه فاصله بین تمام جفت‌های درب‌ها
+//     for (int i = 0; i < num_rooms; i++) {
+//         for (int j = 0; j < rooms[i].num_doors; j++) {
+            
+//             for (int k = 0; k < num_rooms; k++) {
+//                 if (i != k)
+//                 {
+//                     Edge *edges = malloc(num_rooms * num_rooms * sizeof(Edge));
+//                     int edge_count = 0;
+//                     for (int l = 0; l < rooms[k].num_doors; l++) {
+//                         int dx = rooms[i].doors[j].position.x - rooms[k].doors[l].position.x;
+//                         int dy = rooms[i].doors[j].position.y - rooms[k].doors[l].position.y;
+//                         int distance = dx * dx + dy * dy;
+
+//                         edges[edge_count++] = (Edge){i, j, k, l, distance};
+//                     }
+
+//                     qsort(edges, edge_count, sizeof(Edge), compareEdges);
+//                     Position start = rooms[edges[0].room1].doors[edges[0].door1].position;
+//                     Position target = rooms[edges[0].room2].doors[edges[0].door2].position;
+
+                    
+//                     for (int y = 0; y < height; y++) {
+//                         memset(visited[y], 0, width * sizeof(int)); 
+//                         for (int x = 0; x < width; x++) {
+//                             parent[y][x] = (Position){-1, -1};
+//                         }
+//                     }
+
+//                     if (bfs_corridor(map, start, target, width, height, parent, visited)) {
+//                         Position current = target;
+//                         while (current.x != start.x || current.y != start.y) {
+//                             if (current.x == target.x || current.y == target.y)
+//                             {
+//                                 current = parent[current.y][current.x];
+//                                 continue;
+//                             }
+//                             map[current.y][current.x] = '#'; 
+//                             current = parent[current.y][current.x];
+//                         }
+
+                        
+//                         (*corridors)[*num_corridors].start = start;
+//                         (*corridors)[*num_corridors].end = target;
+//                         (*num_corridors)++;
+//                     }
+//                     free(edges);
+//                 }
+//             }
+            
+
+//         }
+//     }
+
+//     // آزادسازی حافظه
+//     for (int i = 0; i < height; i++) {
+//         free(visited[i]);
+//         free(parent[i]);
+//     }
+//     free(visited);
+//     free(parent);
+// }
 void connect_rooms_with_bfs(Room *rooms, int num_rooms, char **map, int width, int height, Corridor **corridors, int *num_corridors) {
     *num_corridors = 0;
     *corridors = malloc(1000 * sizeof(Corridor)); 
@@ -896,62 +1193,108 @@ void connect_rooms_with_bfs(Room *rooms, int num_rooms, char **map, int width, i
         parent[i] = malloc(width * sizeof(Position));
     }
 
-
-    // Edge *edges = malloc(num_rooms * num_rooms * sizeof(Edge));
-    // int edge_count = 0;
-
-
-    // محاسبه فاصله بین تمام جفت‌های درب‌ها
+    // محاسبه فاصله بین تمام جفت‌های درها (معمولی و رمزدار)
     for (int i = 0; i < num_rooms; i++) {
+        // بررسی درهای معمولی
         for (int j = 0; j < rooms[i].num_doors; j++) {
-            
             for (int k = 0; k < num_rooms; k++) {
-                if (i != k)
-                {
-                    Edge *edges = malloc(num_rooms * num_rooms * sizeof(Edge));
-                    int edge_count = 0;
-                    for (int l = 0; l < rooms[k].num_doors; l++) {
-                        int dx = rooms[i].doors[j].position.x - rooms[k].doors[l].position.x;
-                        int dy = rooms[i].doors[j].position.y - rooms[k].doors[l].position.y;
-                        int distance = dx * dx + dy * dy;
+                if (i == k) continue;
 
-                        edges[edge_count++] = (Edge){i, j, k, l, distance};
-                    }
+                for (int l = 0; l < rooms[k].num_doors; l++) {
+                    // بررسی درهای معمولی
+                    Position start = rooms[i].doors[j].position;
+                    Position target = rooms[k].doors[l].position;
 
-                    qsort(edges, edge_count, sizeof(Edge), compareEdges);
-                    Position start = rooms[edges[0].room1].doors[edges[0].door1].position;
-                    Position target = rooms[edges[0].room2].doors[edges[0].door2].position;
-
-                    
+                    // بازنشانی آرایه‌های بازدید شده و والد
                     for (int y = 0; y < height; y++) {
-                        memset(visited[y], 0, width * sizeof(int)); 
+                        memset(visited[y], 0, width * sizeof(int));
                         for (int x = 0; x < width; x++) {
                             parent[y][x] = (Position){-1, -1};
                         }
                     }
 
+                    // اجرای BFS برای پیدا کردن مسیر
                     if (bfs_corridor(map, start, target, width, height, parent, visited)) {
                         Position current = target;
                         while (current.x != start.x || current.y != start.y) {
-                            if (current.x == target.x || current.y == target.y)
-                            {
-                                current = parent[current.y][current.x];
-                                continue;
-                            }
-                            map[current.y][current.x] = '#'; 
+                            if (map[current.y][current.x] == ' ') {
+                                map[current.y][current.x] = '#';
+                            } // رسم راهرو
                             current = parent[current.y][current.x];
                         }
 
-                        
+                        // اضافه کردن راهرو به لیست
                         (*corridors)[*num_corridors].start = start;
                         (*corridors)[*num_corridors].end = target;
                         (*num_corridors)++;
                     }
-                    free(edges);
                 }
             }
-            
+        }
 
+        // بررسی درهای رمزدار
+        if (rooms[i].num_pass_door > 0) {
+            Position pass_door_pos = rooms[i].pass_door.position;
+            for (int k = 0; k < num_rooms; k++) {
+                if (i == k) continue;
+
+                for (int l = 0; l < rooms[k].num_doors; l++) {
+                    Position target = rooms[k].doors[l].position;
+
+                    // بازنشانی آرایه‌های بازدید شده و والد
+                    for (int y = 0; y < height; y++) {
+                        memset(visited[y], 0, width * sizeof(int));
+                        for (int x = 0; x < width; x++) {
+                            parent[y][x] = (Position){-1, -1};
+                        }
+                    }
+
+                    // اجرای BFS برای پیدا کردن مسیر
+                    if (bfs_corridor(map, pass_door_pos, target, width, height, parent, visited)) {
+                        Position current = target;
+                        while (current.x != pass_door_pos.x || current.y != pass_door_pos.y) {
+                            if (map[current.y][current.x] == ' ') {
+                                map[current.y][current.x] = '#';
+                            } // رسم راهرو
+                            current = parent[current.y][current.x];
+                        }
+
+                        // اضافه کردن راهرو به لیست
+                        (*corridors)[*num_corridors].start = pass_door_pos;
+                        (*corridors)[*num_corridors].end = target;
+                        (*num_corridors)++;
+                    }
+                }
+
+                // بررسی اتصال بین دو در رمزدار
+                if (rooms[k].num_pass_door > 0) {
+                    Position target_pass_door_pos = rooms[k].pass_door.position;
+
+                    // بازنشانی آرایه‌های بازدید شده و والد
+                    for (int y = 0; y < height; y++) {
+                        memset(visited[y], 0, width * sizeof(int));
+                        for (int x = 0; x < width; x++) {
+                            parent[y][x] = (Position){-1, -1};
+                        }
+                    }
+
+                    // اجرای BFS برای پیدا کردن مسیر
+                    if (bfs_corridor(map, pass_door_pos, target_pass_door_pos, width, height, parent, visited)) {
+                        Position current = target_pass_door_pos;
+                        while (current.x != pass_door_pos.x || current.y != pass_door_pos.y) {
+                            if (map[current.y][current.x] == ' ') {
+                                map[current.y][current.x] = '#';
+                            } // رسم راهرو
+                            current = parent[current.y][current.x];
+                        }
+
+                        // اضافه کردن راهرو به لیست
+                        (*corridors)[*num_corridors].start = pass_door_pos;
+                        (*corridors)[*num_corridors].end = target_pass_door_pos;
+                        (*num_corridors)++;
+                    }
+                }
+            }
         }
     }
 
@@ -963,8 +1306,6 @@ void connect_rooms_with_bfs(Room *rooms, int num_rooms, char **map, int width, i
     free(visited);
     free(parent);
 }
-
-
 
 
 Level create_level(int width, int height, int num_rooms) {
@@ -1020,7 +1361,7 @@ void move_player(Game *game, int key) {
 
     char next_tile = map[new_pos.y][new_pos.x];
 
-    if (next_tile == '.' || next_tile == '+' || next_tile == '#' || next_tile == 'T' || next_tile == 'S') {
+    if (next_tile == '.' || next_tile == '+' || next_tile == '#' || next_tile == 'T' || next_tile == 'S' || next_tile == '@' || next_tile == '&') {
         if (next_tile == '+') {
             for (int i = 0; i < level->num_rooms; i++) {
                 Room room = level->rooms[i];
@@ -1038,9 +1379,112 @@ void move_player(Game *game, int key) {
             next_level(game); 
             return;
         }
+        else if (next_tile == '@')
+        {
+
+            int n;
+            for (int i = 0; i < level->num_rooms; i++) {
+                Room* room = &level->rooms[i];
+                if (new_pos.y == room->pass_door.position.y && new_pos.x == room->pass_door.position.x) {   
+                    n = open_pass_door(room, game);
+                    break;
+                }
+            }
+            if (n == 0) return;
+            // int n;
+            // for (int i = 0; i < level->num_rooms; i++) {
+            //     Room room = level->rooms[i];
+            //     if (new_pos.y == room.pass_key.y && new_pos.x == room.pass_key.x)
+            //     {   
+            //         n = open_pass_door(&room , game);
+            //         break;
+            //     }
+            // }
+            // if (n == 0)
+            // {
+            //     return;
+            // }
+            
+        }
+        else if (next_tile == '&'){
+            for (int i = 0; i < level->num_rooms; i++) {
+                Room* room = &level->rooms[i];
+                if (new_pos.y == room->pass_key.y && new_pos.x == room->pass_key.x) {   
+                    ThreadArgs* args = malloc(sizeof(ThreadArgs)); // تخصیص حافظه دینامیک
+                    args->game = game;
+                    args->room = room; // اشاره‌گر مستقیم به room اصلی
+
+                    pthread_t password_timer;
+                    pthread_create(&password_timer, NULL, creat_password, args);
+                    break;
+                }
+            }
+            refresh();
+            // for (int i = 0; i < level->num_rooms; i++) {
+            //     Room room = level->rooms[i];
+            //     if (new_pos.y == room.pass_key.y && new_pos.x == room.pass_key.x)
+            //     {   
+            //         ThreadArgs* args = malloc(sizeof(ThreadArgs)); // تخصیص حافظه دینامیک
+            //         args->game = game; // مقداردهی به اشاره‌گر Game
+            //         args->room = &room;
+            //         pthread_t password_timer;
+            //         pthread_create(&password_timer, NULL , creat_password, (void*)args);
+            //         break;
+            //     }
+            // }
+            
+        }
+        
 
         game->player.position = new_pos;
     }
+}
+
+void* creat_password(void* arg){
+
+    ThreadArgs* args = (ThreadArgs*)arg;
+
+    // دسترسی به داده‌های داخل ساختار
+    Game* game = args->game;
+    Room* room = args->room;
+
+    Level *level = &game->levels[game->current_level];
+
+    float total_time = 30.0;
+    int pass = rand()%10000;
+    room->pass_door.password = pass;
+    // return pass;
+    while (total_time > 0)
+    {
+        usleep(100000);
+        total_time-=0.1;
+        mvprintw(level->height + 4, COLS/2 - 7, "secret password: %d", pass);
+        refresh();
+
+    }
+    refresh();
+    pthread_exit(NULL);
+    
+}
+
+int open_pass_door(Room* room , Game* game){
+    char password[5];
+    if (room->pass_door.is_open == 1)
+    {
+        return 1;
+    }
+    
+    // int pass = creat_password();
+    int unlocked = create_window(LINES/2 - 5 , COLS / 2 -20, 10 , 40 , 4 , password , room->pass_door.password);
+    refresh();
+    if (unlocked == 1)
+    {
+        room->pass_door.is_open = 1;
+        refresh();
+        return 1;
+    }
+    refresh();
+    return 0;  
 }
 
 
@@ -1062,6 +1506,7 @@ void draw_game(Game *game) {
     refresh();
     mvaddch(game->player.position.y, game->player.position.x, '@');
     mvprintw(level->height + 2, 0, "Player HP: %d", game->player.hp);
+    mvprintw(level->height + 3, 0, "Time Remaining: %02d:%02d", game->timer.minute, game->timer.second);
 
     refresh();
 }
@@ -1203,6 +1648,173 @@ void create_textbox(int start_y, int start_x, int width, int max_length, char *i
     // wrefresh(textbox);
     // delwin(textbox); // حذف پنجره
 }
+
+int create_window(int start_y, int start_x, int height, int width, int max_length, char *input, int pass) {
+    WINDOW *textbox = newwin(height, width, start_y, start_x);
+    box(textbox, 0, 0); 
+    wrefresh(textbox);
+    refresh();
+
+    int n = 0;
+    const char *prompt = "Enter the password: "; 
+    int prompt_len = strlen(prompt);            
+
+    while (1) {
+        memset(input, 0, max_length + 1);
+
+        
+        mvwaddstr(textbox, height / 2, 1, prompt);
+        wmove(textbox, height / 2, 1 + prompt_len); 
+        wrefresh(textbox);
+
+        int ch;
+        int index = 0;
+
+        while ((ch = wgetch(textbox)) != '\n') {
+            if (ch == KEY_BACKSPACE || ch == 127) {
+                if (index > 0) {
+                    input[--index] = '\0';
+                    mvwaddch(textbox, height / 2, 1 + prompt_len + index, ' ');
+                    wmove(textbox, height / 2, 1 + prompt_len + index);        
+                    wrefresh(textbox);
+                }
+            } else if (ch == 'e') {
+                delwin(textbox);
+                return 0;
+            } else if (index < max_length && isprint(ch)) {
+                input[index++] = ch;
+                mvwaddch(textbox, height / 2, 1 + prompt_len + index - 1, ch); 
+                wrefresh(textbox);
+            }
+        }
+
+        int input_pass = atoi(input);
+        if (input_pass == pass) {
+            delwin(textbox);
+            return 1;
+        } else if (input_pass != pass && n == 0) {
+            wattron(textbox, COLOR_PAIR(3));
+            mvwprintw(textbox, 5, 1, "Warning! you entered a wrong password");
+            wattroff(textbox, COLOR_PAIR(2));
+            wrefresh(textbox);
+            refresh();
+            n++;
+            sleep(1);
+            werase(textbox);
+            box(textbox, 0, 0);
+            wrefresh(textbox);
+        } else if (input_pass != pass && n == 1) {
+            wattron(textbox, COLOR_PAIR(4));
+            mvwprintw(textbox, 5, 1, "Warning2! you entered a wrong password");
+            wattroff(textbox, COLOR_PAIR(2));
+            wrefresh(textbox);
+            refresh();
+            n++;
+            sleep(1);
+            werase(textbox);
+            box(textbox, 0, 0);
+            wrefresh(textbox);
+        } else if (input_pass != pass && n == 2) {
+            wattron(textbox, COLOR_PAIR(5));
+            mvwprintw(textbox, 5, 1, "The door was locked!");
+            wattroff(textbox, COLOR_PAIR(2));
+            wrefresh(textbox);
+            refresh();
+            sleep(1);
+            delwin(textbox);
+            return 0;
+        }
+    }
+}
+
+
+// int create_window(int start_y, int start_x, int height, int width, int max_length, char *input, int pass) {
+//     WINDOW *textbox = newwin(height, width, start_y, start_x);
+//     box(textbox, 0, 0); 
+//     wrefresh(textbox);
+//     refresh();
+//     // curs_set(1);
+//     // memset(input, 0, max_length + 1); 
+//     // wmove(textbox , height/2 , 22);
+//     // mvwaddstr(textbox, height/2 , 1, "Enter the password: ");
+//     // int ch;
+//     // int index = 0;
+//     int n =0 ;
+//     while(1){
+//         memset(input, 0, max_length + 1); 
+//         mvwaddstr(textbox, height/2 , 1, "Enter the password: ");
+//         wmove(textbox , height/2 , 22);
+//         int ch;
+//         int index = 0;
+//         while ((ch = wgetch(textbox)) != '\n') { 
+//             if (ch == KEY_BACKSPACE || ch == 127) { 
+//                 if (index > 0) {
+//                     input[--index] = '\0';
+//                     mvwaddch(textbox, 1, index + 1, ' '); 
+//                     wmove(textbox, 1, index + 1); 
+//                     wrefresh(textbox);
+//                 }
+//             }
+//             else if (ch == 'e')
+//             {   
+//                 delwin(textbox);
+//                 return 0;
+//             }
+        
+//             else if (index < max_length && isprint(ch)) { 
+//                 input[index++] = ch;
+//                 mvwaddch(textbox, 1, index, ch); 
+//                 wrefresh(textbox);
+//             }
+//         }
+//         int input_pass = atoi(input);
+//         if(input_pass == pass){
+//             delwin(textbox);
+//             return 1;
+//         }
+//         else if(input_pass != pass && n == 0){
+//             wattron(textbox, COLOR_PAIR(2));
+//             mvwprintw(textbox , 5 , 1 , "Warning! you entered a wrong password");
+//             wattroff(textbox,COLOR_PAIR(2));
+//             wrefresh(textbox);
+//             refresh();
+//             n++;
+//             sleep(1);
+//             werase(textbox);
+//             box(textbox, 0, 0);
+//             wrefresh(textbox);
+//         }
+//         else if(input_pass != pass && n == 1){
+//             wattron(textbox, COLOR_PAIR(2));
+//             mvwprintw(textbox , 5 , 1 , "Warning2! you entered a wrong password");
+//             wattroff(textbox,COLOR_PAIR(2));
+//             wrefresh(textbox);
+//             refresh();
+//             n++;
+//             sleep(1);
+//             werase(textbox);
+//             box(textbox, 0, 0);
+//             wrefresh(textbox);
+//         }
+//         else if(input_pass != pass && n == 2){
+//             wattron(textbox, COLOR_PAIR(2));
+//             mvwprintw(textbox , 5 , 1 , "The door was locked!");
+//             wattroff(textbox,COLOR_PAIR(2));
+//             wrefresh(textbox);
+//             refresh();
+//             sleep(1);
+//             delwin(textbox);
+//             return 0;
+//         }
+//     }
+//     // werase(textbox);
+//     // box(textbox, 0, 0);
+//     // wrefresh(textbox);
+//     // delwin(textbox); // حذف پنجره
+// }
+
+
+
 // WINDOW* creat_button(int start_y, int start_x, int width, int height , char* input){
 //     WINDOW *button = newwin(3, width + 2, start_y, start_x);
 //     box(button, 0, 0); // رسم حاشیه تکست‌باکس
