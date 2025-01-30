@@ -18,7 +18,11 @@
 
 #define CUSTOM_ORANGE 10
 #define CUSTOM_PINK 11
+// #define start_x 
 
+int weapon_menu_visible = 0;
+int food_menu_visible = 0;
+int spell_menu_visible = 0;
 
 typedef struct {
     int y;
@@ -49,6 +53,54 @@ typedef struct
 
 }Trap;
 
+typedef enum {
+    FOOD_Apple,  
+    FOOD_Egg,   
+    FOOD_Bread,  
+    FOOD_Carot, 
+    FOOD_Fish   
+} FoodType;
+
+typedef struct {
+    Position position;
+    FoodType type;
+    int hp_restore; // مقدار افزایش جان بازیکن
+} Food;
+
+typedef enum {
+    WEAPON_Sword,  
+    WEAPON_Mace,    
+    WEAPON_Normal_Arrow,    
+    WEAPON_Magic_Wand,  
+    WEAPON_Dagger  
+} WeaponType;
+
+typedef enum {
+    SPELL_Speed,
+    SPELL_Health,
+    SPELL_Damage
+} SpellType;
+
+typedef struct {
+    Position position; 
+    int value;         
+} Gold;
+
+typedef struct {
+    Position position;  
+    WeaponType type;    
+    int attack_power;   // قدرت حمله
+    int durability;     // دوام اسلحه (چند بار قابل استفاده است)
+    int special_effect; //    // دوام اسلحه (چند بار قابل استفاده است)
+} Weapon;
+
+typedef struct {
+    Position position;
+    SpellType type;
+    int effect_type;   // نوع اثر طلسم (مثلاً 1: افزایش جان، 2: سرعت بیشتر، ...)
+    int duration;      // مدت زمان اثرگذاری
+} Spell;
+
 
 typedef struct {
     Position position;
@@ -60,6 +112,14 @@ typedef struct {
     Position* object;
     Position pass_key;
     Trap* traps;
+    Food *foods;
+    Gold *golds;   
+    Weapon *weapons;  
+    Spell *spells;  
+    int num_foods;
+    int num_golds;  
+    int num_weapons; 
+    int num_spells;
     int num_traps;
     int num_doors;
     int num_objects;
@@ -82,6 +142,21 @@ typedef struct {
 typedef struct {
     Position position;
     int hp;
+    int num_sword;
+    int num_mace;
+    int num_normal_arrow;
+    int num_magic_wand;
+    int num_dagger;
+    int hungry;
+    int num_health_spell;
+    int num_speed_spell;
+    int num_damage_spell;
+    int num_apple;
+    int num_egg;
+    int num_fish;
+    int num_bread;
+    int num_carrot;
+    int gold_collected;
 } Player;
 
 typedef struct {
@@ -105,9 +180,9 @@ typedef struct {
 } Music;
 
 typedef struct {
-    int total_time; // کل زمان بازی
-    int penalty;    // مقدار کاهش جان بازیکن در هر جریمه
-    int update_interval; // بازه زمانی کاهش جان
+    int total_time; 
+    int penalty;
+    int update_interval; 
 } GameTimer;
 
 typedef struct {
@@ -121,6 +196,7 @@ typedef struct {
     int total_levels;
     int current_level;
     Timer timer;
+    char* game_message;
 } Game;
 
 typedef struct {
@@ -155,7 +231,8 @@ Room create_room(int y, int x, int width, int height);
 int check_room_overlap(Room room, Room *rooms, int num_rooms);
 void add_room_to_map(Room room, char **map, int s);
 Level create_level(int width, int height, int num_rooms);
-void draw_map(char **map, int width, int height);
+void draw_doors(Door* door , int start_x , int start_y);
+void draw_map(Level *level);
 void move_player(Game *game, int key);
 void draw_game(Game *game);
 void reveal_room(Room room, char **map, char** drawMap);
@@ -172,6 +249,19 @@ void *game_timer_thread(void *arg);
 int create_window(int start_y, int start_x, int height, int width, int max_length, char *input, int pass);
 int open_pass_door(Room* room , Game* game);
 void* creat_password(void* arg);
+void draw_weapon(Weapon *weapon , int start_x , int start_y);
+void reveal_weapons(Weapon* weapon , Level* Level , Game* game);
+void reveal_spells(Spell* spell , Level* Level , Game* game);
+void reveal_foods(Food* food, Level* Level , Game* game);
+void reveal_golds(Gold* gold , Level* Level , Game* game);
+void toggle_weapon_menu(Game *game);
+void draw_weapon_menu(Game *game);
+void draw_player_info(Game *game);
+void draw_message_box(Game* game , int start_x, int start_y, int width, int height);
+void draw_food_menu(Game *game);
+void toggle_food_menu(Game *game);
+void toggle_spell_menu(Game *game);
+void draw_spell_menu(Game *game);
 // void free_level(Level *level);
 // void connect_rooms_with_mst(Room *rooms, int num_rooms, char **map, int width, int height, Corridor **corridors, int *num_corridors);
 // void connect_rooms(Room *rooms, int num_rooms, char **map, Corridor **corridors, int *num_corridors);
@@ -189,9 +279,8 @@ void* creat_password(void* arg);
 
 
 int main(){
-    
-    initscr();
     setlocale(LC_ALL, "");
+    initscr();
     curs_set(FALSE);
     keypad(stdscr, TRUE);
     start_color();
@@ -711,9 +800,10 @@ void init_game(int n , User user){
     {
         game.total_levels = 3;
         game.current_level = 0;
-        int map_width = COLS, map_height = LINES -5, num_rooms = 6 + rand() % (game.current_level + 1);
+        int map_width = COLS - 80, map_height = LINES -6, num_rooms = 6 + rand() % (game.current_level + 1);
         game.levels = malloc(4 * sizeof(Level));
         game.levels[game.current_level] = create_level(map_width, map_height, num_rooms);
+        game.game_message = (char*)malloc(100 * sizeof(char));
 
 
         // Initialize player
@@ -721,6 +811,21 @@ void init_game(int n , User user){
         game.player.position.y = game.levels[game.current_level].rooms[0].position.y + game.levels[game.current_level].rooms[0].height/2;
 
         game.player.hp = 100;
+        game.player.gold_collected = 0;
+        game.player.num_dagger = 0;
+        game.player.num_mace = 0;
+        game.player.num_sword = 0;
+        game.player.num_magic_wand = 0;
+        game.player.num_normal_arrow = 0;
+        game.player.num_damage_spell = 0;
+        game.player.num_health_spell = 0;
+        game.player.num_speed_spell = 0;
+        game.player.num_apple = 0;
+        game.player.num_bread = 0;
+        game.player.num_carrot = 0;
+        game.player.num_fish = 0;
+        game.player.num_egg = 0;
+
 
         // Initially reveal the starting room
         // reveal_room(game.levels[0].rooms[0], game.levels[0].map);
@@ -829,7 +934,7 @@ void next_level(Game* game){
     // }
     // game->levels[game->current_level] = create_level
 
-    int map_width = COLS, map_height = LINES - 5;
+    int map_width = COLS - 80, map_height = LINES - 6;
     int num_rooms = 6 + rand() % (game->current_level + 1);
 
     game->levels[game->current_level] = create_level(map_width, map_height, num_rooms);
@@ -876,7 +981,14 @@ Room create_room(int y, int x, int width, int height) {
     room.object = malloc(room.num_objects * sizeof(Position));
     room.traps = malloc(room.num_traps * sizeof(Trap));
     room.num_pass_door = rand()%2;
-    // room.pass_door = malloc(room.num_pass_door * sizeof(Door));
+    room.num_weapons = rand() % 2;
+    room.weapons = malloc(room.num_weapons * sizeof(Weapon));
+    room.num_foods = rand() % 3;
+    room.foods = malloc(room.num_foods * sizeof(Food));
+    room.num_golds = rand() % 3;
+    room.golds = malloc(room.num_golds * sizeof(Gold));
+    room.num_spells = rand() % 2;
+    room.spells = malloc(room.num_spells * sizeof(Spell));
 
 
     for (int i = 0; i < room.num_doors; i++) {
@@ -933,6 +1045,38 @@ Room create_room(int y, int x, int width, int height) {
                 break;
         }
         room.pass_door.is_open = 0;
+    }
+
+    for (int i = 0; i < room.num_foods; i++) {
+        room.foods[i].position.x = x + 1 + rand() % (width - 2);
+        room.foods[i].position.y = y + 1 + rand() % (height - 2);
+        room.foods[i].type = rand() % 5;
+        room.foods[i].hp_restore = (rand() % 15) + 5;
+    }
+
+    for (int i = 0; i < room.num_weapons; i++) {
+        room.weapons[i].position.x =  x + 1 + rand() % (width - 2);
+        room.weapons[i].position.y =  y + 1 + rand() % (height - 2);
+        room.weapons[i].type = rand() % 5; 
+        room.weapons[i].attack_power = (rand() % 50) + 5;
+        room.weapons[i].durability = (rand() % 5) + 1;
+        room.weapons[i].special_effect = rand() % 3; 
+    }
+    // room.pass_door = malloc(room.num_pass_door * sizeof(Door));
+
+    
+    for (int i = 0; i < room.num_golds; i++) {
+        room.golds[i].position.x = x + 1 + rand() % (width - 2);
+        room.golds[i].position.y = y + 1 + rand() % (height - 2);
+        room.golds[i].value = (rand() % 20) + 10;
+    }
+
+    
+    for (int i = 0; i < room.num_spells; i++) {
+        room.spells[i].position.x = x + 1 + rand() % (width - 2);
+        room.spells[i].position.y = y + 1 + rand() % (height - 2);
+        room.spells[i].effect_type = rand() % 3;
+        room.spells[i].duration = (rand() % 10) + 5;
     }
     
     for (int i = 0; i < room.num_objects; i++)
@@ -1010,9 +1154,27 @@ void add_room_to_map(Room room, char **map, int s) {
         map[room.pass_door.position.y][room.pass_door.position.x] = '@';
         map[room.pass_key.y][room.pass_key.x] = '&';
     }
+    for (int i = 0; i < room.num_foods; i++) {
+        map[room.foods[i].position.y][room.foods[i].position.x] = 'F'; 
+    }
+
+
+    for (int i = 0; i < room.num_golds; i++) {
+        map[room.golds[i].position.y][room.golds[i].position.x] = 'G';
+    }
+
+
+    for (int i = 0; i < room.num_weapons; i++) {
+        map[room.weapons[i].position.y][room.weapons[i].position.x] = 'W'; 
+    }
+
+
+    for (int i = 0; i < room.num_spells; i++) {
+        map[room.spells[i].position.y][room.spells[i].position.x] = 'S'; 
+    }
     if (s == 1)
     {
-        map[room.position.y + 1 +rand() % (room.height - 2)][room.position.x + 1 +rand() % (room.width - 2)] = 'S';
+        map[room.position.y + 1 +rand() % (room.height - 2)][room.position.x + 1 +rand() % (room.width - 2)] = 'P';
     }
 
 }
@@ -1022,7 +1184,7 @@ void reveal_room(Room room, char **map, char** drawMap) {
     for (int i = 0; i < room.height; i++) {
         for (int j = 0; j < room.width; j++) {
             char current_char = map[room.position.y + i][room.position.x + j];
-            if (current_char == '-' || current_char == '|' || current_char == '.' || current_char == '+' || current_char == 'O' || current_char == 'T' || current_char == 'S'|| current_char == '@' || current_char == '&') {
+            if (current_char == '-' || current_char == '|' || current_char == '.' || current_char == '+' || current_char == 'O' || current_char == 'T' || current_char == 'P'|| current_char == '@' || current_char == '&' || current_char == 'F' || current_char == 'W' || current_char == 'G' || current_char == 'S') {
                 // map[room.position.y + i][room.position.x + j] = current_char;
                 if (current_char == 'T')
                 {
@@ -1103,85 +1265,6 @@ int compareEdges(const void *a, const void *b) {
     return edgeA->distance - edgeB->distance;
 }
 
-
-// void connect_rooms_with_bfs(Room *rooms, int num_rooms, char **map, int width, int height, Corridor **corridors, int *num_corridors) {
-//     *num_corridors = 0;
-//     *corridors = malloc(1000 * sizeof(Corridor)); 
-
-//     int **visited = malloc(height * sizeof(int *));
-//     Position **parent = malloc(height * sizeof(Position *));
-//     for (int i = 0; i < height; i++) {
-//         visited[i] = calloc(width, sizeof(int));
-//         parent[i] = malloc(width * sizeof(Position));
-//     }
-
-
-//     // Edge *edges = malloc(num_rooms * num_rooms * sizeof(Edge));
-//     // int edge_count = 0;
-
-
-//     // محاسبه فاصله بین تمام جفت‌های درب‌ها
-//     for (int i = 0; i < num_rooms; i++) {
-//         for (int j = 0; j < rooms[i].num_doors; j++) {
-            
-//             for (int k = 0; k < num_rooms; k++) {
-//                 if (i != k)
-//                 {
-//                     Edge *edges = malloc(num_rooms * num_rooms * sizeof(Edge));
-//                     int edge_count = 0;
-//                     for (int l = 0; l < rooms[k].num_doors; l++) {
-//                         int dx = rooms[i].doors[j].position.x - rooms[k].doors[l].position.x;
-//                         int dy = rooms[i].doors[j].position.y - rooms[k].doors[l].position.y;
-//                         int distance = dx * dx + dy * dy;
-
-//                         edges[edge_count++] = (Edge){i, j, k, l, distance};
-//                     }
-
-//                     qsort(edges, edge_count, sizeof(Edge), compareEdges);
-//                     Position start = rooms[edges[0].room1].doors[edges[0].door1].position;
-//                     Position target = rooms[edges[0].room2].doors[edges[0].door2].position;
-
-                    
-//                     for (int y = 0; y < height; y++) {
-//                         memset(visited[y], 0, width * sizeof(int)); 
-//                         for (int x = 0; x < width; x++) {
-//                             parent[y][x] = (Position){-1, -1};
-//                         }
-//                     }
-
-//                     if (bfs_corridor(map, start, target, width, height, parent, visited)) {
-//                         Position current = target;
-//                         while (current.x != start.x || current.y != start.y) {
-//                             if (current.x == target.x || current.y == target.y)
-//                             {
-//                                 current = parent[current.y][current.x];
-//                                 continue;
-//                             }
-//                             map[current.y][current.x] = '#'; 
-//                             current = parent[current.y][current.x];
-//                         }
-
-                        
-//                         (*corridors)[*num_corridors].start = start;
-//                         (*corridors)[*num_corridors].end = target;
-//                         (*num_corridors)++;
-//                     }
-//                     free(edges);
-//                 }
-//             }
-            
-
-//         }
-//     }
-
-//     // آزادسازی حافظه
-//     for (int i = 0; i < height; i++) {
-//         free(visited[i]);
-//         free(parent[i]);
-//     }
-//     free(visited);
-//     free(parent);
-// }
 void connect_rooms_with_bfs(Room *rooms, int num_rooms, char **map, int width, int height, Corridor **corridors, int *num_corridors) {
     *num_corridors = 0;
     *corridors = malloc(1000 * sizeof(Corridor)); 
@@ -1193,19 +1276,17 @@ void connect_rooms_with_bfs(Room *rooms, int num_rooms, char **map, int width, i
         parent[i] = malloc(width * sizeof(Position));
     }
 
-    // محاسبه فاصله بین تمام جفت‌های درها (معمولی و رمزدار)
     for (int i = 0; i < num_rooms; i++) {
-        // بررسی درهای معمولی
+
         for (int j = 0; j < rooms[i].num_doors; j++) {
             for (int k = 0; k < num_rooms; k++) {
                 if (i == k) continue;
 
                 for (int l = 0; l < rooms[k].num_doors; l++) {
-                    // بررسی درهای معمولی
+
                     Position start = rooms[i].doors[j].position;
                     Position target = rooms[k].doors[l].position;
 
-                    // بازنشانی آرایه‌های بازدید شده و والد
                     for (int y = 0; y < height; y++) {
                         memset(visited[y], 0, width * sizeof(int));
                         for (int x = 0; x < width; x++) {
@@ -1213,17 +1294,16 @@ void connect_rooms_with_bfs(Room *rooms, int num_rooms, char **map, int width, i
                         }
                     }
 
-                    // اجرای BFS برای پیدا کردن مسیر
+
                     if (bfs_corridor(map, start, target, width, height, parent, visited)) {
                         Position current = target;
                         while (current.x != start.x || current.y != start.y) {
                             if (map[current.y][current.x] == ' ') {
                                 map[current.y][current.x] = '#';
-                            } // رسم راهرو
+                            } 
                             current = parent[current.y][current.x];
                         }
 
-                        // اضافه کردن راهرو به لیست
                         (*corridors)[*num_corridors].start = start;
                         (*corridors)[*num_corridors].end = target;
                         (*num_corridors)++;
@@ -1232,7 +1312,7 @@ void connect_rooms_with_bfs(Room *rooms, int num_rooms, char **map, int width, i
             }
         }
 
-        // بررسی درهای رمزدار
+
         if (rooms[i].num_pass_door > 0) {
             Position pass_door_pos = rooms[i].pass_door.position;
             for (int k = 0; k < num_rooms; k++) {
@@ -1241,7 +1321,6 @@ void connect_rooms_with_bfs(Room *rooms, int num_rooms, char **map, int width, i
                 for (int l = 0; l < rooms[k].num_doors; l++) {
                     Position target = rooms[k].doors[l].position;
 
-                    // بازنشانی آرایه‌های بازدید شده و والد
                     for (int y = 0; y < height; y++) {
                         memset(visited[y], 0, width * sizeof(int));
                         for (int x = 0; x < width; x++) {
@@ -1249,28 +1328,28 @@ void connect_rooms_with_bfs(Room *rooms, int num_rooms, char **map, int width, i
                         }
                     }
 
-                    // اجرای BFS برای پیدا کردن مسیر
+
                     if (bfs_corridor(map, pass_door_pos, target, width, height, parent, visited)) {
                         Position current = target;
                         while (current.x != pass_door_pos.x || current.y != pass_door_pos.y) {
                             if (map[current.y][current.x] == ' ') {
                                 map[current.y][current.x] = '#';
-                            } // رسم راهرو
+                            } 
                             current = parent[current.y][current.x];
                         }
 
-                        // اضافه کردن راهرو به لیست
+
                         (*corridors)[*num_corridors].start = pass_door_pos;
                         (*corridors)[*num_corridors].end = target;
                         (*num_corridors)++;
                     }
                 }
 
-                // بررسی اتصال بین دو در رمزدار
+
                 if (rooms[k].num_pass_door > 0) {
                     Position target_pass_door_pos = rooms[k].pass_door.position;
 
-                    // بازنشانی آرایه‌های بازدید شده و والد
+
                     for (int y = 0; y < height; y++) {
                         memset(visited[y], 0, width * sizeof(int));
                         for (int x = 0; x < width; x++) {
@@ -1278,17 +1357,16 @@ void connect_rooms_with_bfs(Room *rooms, int num_rooms, char **map, int width, i
                         }
                     }
 
-                    // اجرای BFS برای پیدا کردن مسیر
+
                     if (bfs_corridor(map, pass_door_pos, target_pass_door_pos, width, height, parent, visited)) {
                         Position current = target_pass_door_pos;
                         while (current.x != pass_door_pos.x || current.y != pass_door_pos.y) {
                             if (map[current.y][current.x] == ' ') {
                                 map[current.y][current.x] = '#';
-                            } // رسم راهرو
+                            } 
                             current = parent[current.y][current.x];
                         }
 
-                        // اضافه کردن راهرو به لیست
                         (*corridors)[*num_corridors].start = pass_door_pos;
                         (*corridors)[*num_corridors].end = target_pass_door_pos;
                         (*num_corridors)++;
@@ -1298,7 +1376,7 @@ void connect_rooms_with_bfs(Room *rooms, int num_rooms, char **map, int width, i
         }
     }
 
-    // آزادسازی حافظه
+
     for (int i = 0; i < height; i++) {
         free(visited[i]);
         free(parent[i]);
@@ -1347,13 +1425,155 @@ Level create_level(int width, int height, int num_rooms) {
     return level;
 }
 
+void reveal_weapons(Weapon* weapon , Level* level , Game* game){
+    switch (weapon->type) {
+        case WEAPON_Sword: game->player.num_sword++; break;
+        case WEAPON_Mace: game->player.num_mace++; break;
+        case WEAPON_Normal_Arrow: game->player.num_normal_arrow++; break;
+        case WEAPON_Magic_Wand: game->player.num_magic_wand++; break;
+        case WEAPON_Dagger: game->player.num_dagger++; break;
+        // default: symbol = "?";
+    }
+
+
+    for (int i = 0; i < level->num_rooms; i++) {
+        for (int j = 0; j < level->rooms[i].num_weapons; j++) {
+            if (&level->rooms[i].weapons[j] == weapon) {
+
+                for (int k = j; k < level->rooms[i].num_weapons - 1; k++) {
+                    level->rooms[i].weapons[k] = level->rooms[i].weapons[k + 1];
+                }
+                level->rooms[i].num_weapons--;
+                break;
+            }
+        }
+    }
+
+
+    level->map[weapon->position.y][weapon->position.x] = '.';
+    level->drawMap[weapon->position.y][weapon->position.x] = '.';
+
+}
+
+void reveal_foods(Food* food , Level* level , Game* game){
+    switch (food->type) {
+        case FOOD_Apple:  {
+            game->player.hungry -= 2;
+            game->player.num_apple++;
+            break;
+        }
+        case FOOD_Egg:  {
+            game->player.hungry -= 3; 
+            game->player.num_egg++;
+            break;
+        }
+        case FOOD_Bread:  {
+            game->player.hungry -= 4; 
+            game->player.num_bread++;
+            break;
+        }
+        case FOOD_Carot:  {
+            game->player.hungry -= 2; 
+            game->player.num_carrot++;
+            break;
+        }
+        case FOOD_Fish:  {
+            game->player.hungry -= 5; 
+            game->player.num_fish++;
+            break;
+        }
+    }
+
+
+    for (int i = 0; i < level->num_rooms; i++) {
+        for (int j = 0; j < level->rooms[i].num_foods; j++) {
+            if (&level->rooms[i].foods[j] == food) {
+
+                for (int k = j; k < level->rooms[i].num_foods - 1; k++) {
+                    level->rooms[i].foods[k] = level->rooms[i].foods[k + 1];
+                }
+                level->rooms[i].num_foods--;
+                break;
+            }
+        }
+    }
+
+
+    level->map[food->position.y][food->position.x] = '.';
+    level->drawMap[food->position.y][food->position.x] = '.';
+}
+
+void reveal_spells(Spell* spell , Level* level , Game* game){
+    switch (spell->type) {
+        case SPELL_Health:  game->player.num_health_spell++; break;
+        case SPELL_Damage:  game->player.num_damage_spell++; break;
+        case SPELL_Speed:  game->player.num_speed_spell++; break;
+    }
+
+
+
+
+    for (int i = 0; i < level->num_rooms; i++) {
+        for (int j = 0; j < level->rooms[i].num_spells; j++) {
+            if (&level->rooms[i].spells[j] == spell) {
+
+                for (int k = j; k < level->rooms[i].num_spells - 1; k++) {
+                    level->rooms[i].spells[k] = level->rooms[i].spells[k + 1];
+                }
+                level->rooms[i].num_spells--;
+                break;
+            }
+        }
+    }
+
+
+    level->map[spell->position.y][spell->position.x] = '.';
+    level->drawMap[spell->position.y][spell->position.x] = '.';
+}
+
+void reveal_golds(Gold* gold , Level* level , Game* game){
+    game->player.gold_collected++;
+
+    for (int i = 0; i < level->num_rooms; i++) {
+        for (int j = 0; j < level->rooms[i].num_golds; j++) {
+            if (&level->rooms[i].golds[j] == gold) {
+
+                for (int k = j; k < level->rooms[i].num_golds - 1; k++) {
+                    level->rooms[i].golds[k] = level->rooms[i].golds[k + 1];
+                }
+                level->rooms[i].num_golds--;
+                break;
+            }
+        }
+    }
+
+    level->map[gold->position.y][gold->position.x] = '.';
+    level->drawMap[gold->position.y][gold->position.x] = '.';
+}
+
 void move_player(Game *game, int key) {
+
+    if (key == 'g') {
+        toggle_weapon_menu(game);
+        return;
+    }
+
+    if (key == 'f') {
+        toggle_food_menu(game);
+        return;
+    }
+    if (key == 't') {
+        toggle_spell_menu(game);
+        return;
+    }
+
     Position new_pos = game->player.position;
     Level *level = &game->levels[game->current_level];
     char **map = level->map;
     char **drawMap = level->drawMap;
 
-
+    int start_y = 0;
+    int start_x =  (COLS - level->width) / 2;
     if (key == KEY_UP && new_pos.y > 0) new_pos.y--;
     else if (key == KEY_DOWN && new_pos.y < level->height - 1) new_pos.y++;
     else if (key == KEY_LEFT && new_pos.x > 0) new_pos.x--;
@@ -1361,7 +1581,7 @@ void move_player(Game *game, int key) {
 
     char next_tile = map[new_pos.y][new_pos.x];
 
-    if (next_tile == '.' || next_tile == '+' || next_tile == '#' || next_tile == 'T' || next_tile == 'S' || next_tile == '@' || next_tile == '&') {
+    if (next_tile == '.' || next_tile == '+' || next_tile == '#' || next_tile == 'T' || next_tile == 'P' || next_tile == '@' || next_tile == '&' || next_tile == 'W' || next_tile == 'F' || next_tile == 'G' || next_tile == 'S') {
         if (next_tile == '+') {
             for (int i = 0; i < level->num_rooms; i++) {
                 Room room = level->rooms[i];
@@ -1375,7 +1595,7 @@ void move_player(Game *game, int key) {
             reveal_corridor(new_pos, map, drawMap);
         } else if (next_tile == 'T') {
             game->player.hp--;
-        } else if (next_tile == 'S') {
+        } else if (next_tile == 'P') {
             next_level(game); 
             return;
         }
@@ -1410,9 +1630,9 @@ void move_player(Game *game, int key) {
             for (int i = 0; i < level->num_rooms; i++) {
                 Room* room = &level->rooms[i];
                 if (new_pos.y == room->pass_key.y && new_pos.x == room->pass_key.x) {   
-                    ThreadArgs* args = malloc(sizeof(ThreadArgs)); // تخصیص حافظه دینامیک
+                    ThreadArgs* args = malloc(sizeof(ThreadArgs)); 
                     args->game = game;
-                    args->room = room; // اشاره‌گر مستقیم به room اصلی
+                    args->room = room; 
 
                     pthread_t password_timer;
                     pthread_create(&password_timer, NULL, creat_password, args);
@@ -1434,6 +1654,59 @@ void move_player(Game *game, int key) {
             // }
             
         }
+        else if (next_tile == 'W')
+        {
+                for (int i = 0; i < level->num_rooms; i++) {
+                    for (int j = 0; j < level->rooms[i].num_weapons ; j++)
+                    {
+                        if (new_pos.y == level->rooms[i].weapons[j].position.y && new_pos.x == level->rooms[i].weapons[j].position.x)
+                        {
+                            reveal_weapons(&level->rooms[i].weapons[j] , level , game);
+                        }
+                    }
+                }
+        }
+
+        else if (next_tile == 'F')
+        {
+                for (int i = 0; i < level->num_rooms; i++) {
+                    for (int j = 0; j < level->rooms[i].num_foods ; j++)
+                    {
+                        if (new_pos.y == level->rooms[i].foods[j].position.y && new_pos.x == level->rooms[i].foods[j].position.x)
+                        {
+                            reveal_foods(&level->rooms[i].foods[j] , level , game);
+                        }
+                    }
+                }
+        }
+
+        else if (next_tile == 'S')
+        {
+                for (int i = 0; i < level->num_rooms; i++) {
+                    for (int j = 0; j < level->rooms[i].num_spells; j++)
+                    {
+                        if (new_pos.y == level->rooms[i].spells[j].position.y && new_pos.x == level->rooms[i].spells[j].position.x)
+                        {
+                            reveal_spells(&level->rooms[i].spells[j] , level , game);
+                        }
+                    }
+                }
+        }
+
+        else if (next_tile == 'G')
+        {
+                for (int i = 0; i < level->num_rooms; i++) {
+                    for (int j = 0; j < level->rooms[i].num_golds; j++)
+                    {
+                        if (new_pos.y == level->rooms[i].golds[j].position.y && new_pos.x == level->rooms[i].golds[j].position.x)
+                        {
+                            reveal_golds(&level->rooms[i].golds[j] , level , game);
+                        }
+                    }
+                }
+        }
+
+        
         
 
         game->player.position = new_pos;
@@ -1444,7 +1717,6 @@ void* creat_password(void* arg){
 
     ThreadArgs* args = (ThreadArgs*)arg;
 
-    // دسترسی به داده‌های داخل ساختار
     Game* game = args->game;
     Room* room = args->room;
 
@@ -1488,25 +1760,367 @@ int open_pass_door(Room* room , Game* game){
 }
 
 
-void draw_map(char **drawMap, int width, int height) {
-    for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
-            char tile = drawMap[y][x];
-            mvaddch(y, x, tile);
+// void draw_map(char **drawMap, int width, int height) {
+//     for (int y = 0; y < height; y++) {
+//         for (int x = 0; x < width; x++) {
+//             char tile = drawMap[y][x];
+//             mvaddch(y, x, tile);
+//         }
+//     }
+//     refresh();
+// }
+
+void toggle_weapon_menu(Game *game) {
+    weapon_menu_visible = !weapon_menu_visible;
+    draw_game(game);
+}
+
+void toggle_food_menu(Game *game) {
+    food_menu_visible = !food_menu_visible;
+    draw_game(game); 
+}
+
+void toggle_spell_menu(Game *game) {
+    spell_menu_visible = !spell_menu_visible;
+    draw_game(game);
+}
+
+void draw_food_menu(Game *game) {
+    if (!food_menu_visible) return;
+
+    int start_x = COLS - 36; 
+    int start_y = 3;
+    int width = 30;
+    int height = 10;
+
+    WINDOW *food_win = newwin(height, width, start_y, start_x);
+    box(food_win, 0, 0);
+    mvwprintw(food_win, 1, 10, "🍽 Food 🍽");
+
+    // نمایش غذاهای موجود
+    for (int i = 0; i < 5; i++) {
+        char *food_icon;
+        int food_count;
+
+        switch (i) {
+            case 0: {
+                food_icon = "🍎 Apple : ";
+                food_count = game->player.num_apple;
+                break;
+            }
+            case 1: {
+                food_icon = "🥚 Egg : ";
+                food_count = game->player.num_egg;
+                break;
+            }
+            case 2: {
+                food_icon = "🍞 Bread : ";
+                food_count = game->player.num_bread;
+                break;
+            }
+            case 3: {
+                food_icon = "🥕 Carrot : ";
+                food_count = game->player.num_carrot;
+                break;
+            }
+            case 4: {
+                food_icon = "🐟 Fish : ";
+                food_count = game->player.num_fish;
+                break;
+            }        }
+        mvwprintw(food_win, i + 3, 2, "%s %d", food_icon, food_count);
+    }
+
+    wrefresh(food_win);
+}
+
+void draw_spell_menu(Game *game) {
+    if (!spell_menu_visible) return;
+
+    int start_x = COLS - 36;
+    int start_y = 20;
+    int width = 30;
+    int height = 10;
+
+    WINDOW *spell_win = newwin(height, width, start_y, start_x);
+    box(spell_win, 0, 0);
+    mvwprintw(spell_win, 1, 10, "🧙‍♂️ Spells 🔮");
+
+
+    for (int i = 0; i < 3; i++) {
+        char *spell_icon;
+        int spell_count;
+
+        switch (i) {
+            case 0: {
+                spell_icon = "❤️ Health : ";
+                spell_count = game->player.num_health_spell;
+                break;
+            }
+            case 1: {
+                spell_icon = "⚡ Damage : ";
+                spell_count = game->player.num_damage_spell;
+                break;
+            }
+            case 2: {
+                spell_icon = "🏃‍♂️ Speed : ";
+                spell_count = game->player.num_speed_spell;
+                break;
+            }
+        }
+        mvwprintw(spell_win, i + 3, 2, "%s %d", spell_icon, spell_count);
+    }
+
+    wrefresh(spell_win);
+}
+
+void draw_weapon_menu(Game *game) {
+    if (!weapon_menu_visible) return;
+
+    int start_x = COLS - 36; 
+    int start_y = 35; 
+    int width = 30;
+    int height = 10;
+
+    WINDOW *weapon_win = newwin(height, width, start_y, start_x);
+    box(weapon_win, 0, 0);
+    mvwprintw(weapon_win, 1, 10, "🗡 Weapons 🏹");
+
+
+    for (int i = 0; i < 5; i++) {
+        // Room *room = &game->levels[game->current_level].rooms[i];
+            char *weapon_icon;
+            int weapon_count;
+
+            switch (i) {
+                case 0: {
+                    weapon_icon = "⚔️ Sword";
+                    weapon_count = game->player.num_sword;
+                    break;
+                }
+                case 1: {
+                    weapon_icon = "🪓 Axe";
+                    weapon_count = game->player.num_mace;
+                    break;
+                    }
+                case 2: {
+                    weapon_icon = "🏹 Bow"; 
+                    weapon_count = game->player.num_normal_arrow;
+                    break;
+                }
+                case 3: {
+                    weapon_icon = "🪄 Staff"; 
+                    weapon_count = game->player.num_magic_wand;
+                    break;
+                }
+                case 4: {
+                    weapon_icon = "🗡️ Dagger";
+                    weapon_count = game->player.num_dagger;
+                    break;
+                }
+                default: weapon_icon = "?"; break;
+            }
+            mvwprintw(weapon_win, i + 3, 2, "%s %d", weapon_icon , weapon_count);
+        
+    }
+
+    wrefresh(weapon_win);
+}
+
+
+
+
+
+void draw_doors(Door* door , int start_x , int start_y) {
+    // for (int i = 0; i < num_doors; i++) {
+        // Door *door = doors;
+        // int start_x = (COLS - level->width) / 2;
+        // int start_y;
+
+        if (door->is_open) {
+            attron(COLOR_PAIR(3));
+            mvaddch(door->position.y + start_y, door->position.x + start_x , '@');
+            attroff(COLOR_PAIR(3));
+        } else {
+            attron(COLOR_PAIR(2)); 
+            mvaddch(door->position.y + start_y, door->position.x + start_x, '@');
+            attroff(COLOR_PAIR(2));
+        }
+    // }
+}
+
+void draw_weapon(Weapon *weapon , int start_x , int start_y) {
+    char *symbol;
+    switch (weapon->type) {
+        case WEAPON_Sword: symbol = "⚔"; break;
+        case WEAPON_Mace: symbol = "⚒"; break;
+        case WEAPON_Normal_Arrow: symbol = "➳"; break;
+        case WEAPON_Magic_Wand: symbol = "🪄"; break;
+        case WEAPON_Dagger: symbol = "🗡"; break;
+        default: symbol = "?";
+    }
+    mvprintw(weapon->position.y + start_y, weapon->position.x + start_x, "%s", symbol);
+}
+
+void draw_food(Food *food , int start_x , int start_y) {
+    char *food_icon;
+    switch (food->type) {
+        case FOOD_Apple:  food_icon = "🍍"; break;
+        case FOOD_Egg:   food_icon = "🥚"; break;
+        case FOOD_Bread:  food_icon = "🥜"; break;
+        case FOOD_Carot: food_icon = "🥕"; break;
+        case FOOD_Fish:   food_icon = "🍦"; break;
+        default:          food_icon = "?"; break;
+    }
+    mvprintw(food->position.y + start_y, food->position.x + start_x, "%s", food_icon);
+}
+
+void draw_gold(Gold *gold , int start_x , int start_y) {
+    mvprintw(gold->position.y + start_y, gold->position.x + start_x, "*");
+}
+
+void draw_spell(Spell *spell , int start_x , int start_y) {
+
+    mvprintw(spell->position.y + start_y, spell->position.x + start_x, "🔮");
+}
+
+void draw_border_around_map(int start_x, int start_y, int width, int height) {
+
+    mvprintw(start_y - 1, start_x - 1, "🔲");
+    mvprintw(start_y - 1, start_x + width, "🔲");
+    mvprintw(start_y + height, start_x - 1, "🔲");
+    mvprintw(start_y + height, start_x + width, "🔲");
+
+
+    for (int x = start_x; x < start_x + width; x++) {
+        mvprintw(start_y - 1, x, "─");
+        mvprintw(start_y + height, x, "─");
+    }
+
+
+    for (int y = start_y; y < start_y + height; y++) {
+        mvprintw(y, start_x - 1, "❘");
+        mvprintw(y, start_x + width, "❘");
+    }
+}
+
+
+void draw_map(Level *level) {
+    clear();
+
+    int start_x = (COLS - level->width) / 2;
+    int start_y = (LINES - level->height) / 2;
+    for (int y = 0; y < level->height; y++) {
+        for (int x = 0; x < level->width; x++) {
+            char tile = level->drawMap[y][x];
+            mvaddch(y + start_y, x + start_x, tile);
         }
     }
+    draw_border_around_map(start_x, start_y, level->width, level->height);
+
+
+    for (int i = 0; i < level->num_rooms; i++) {
+        if (level->rooms[i].num_pass_door > 0)
+        {
+            if (level->drawMap[level->rooms[i].pass_door.position.y][level->rooms[i].pass_door.position.x] == '@')
+            {
+                draw_doors(&level->rooms[i].pass_door , start_x , start_y);
+            }
+            
+        }
+    }
+
+    for (int i = 0; i < level->num_rooms; i++) {
+        for (int j = 0; j < level->rooms[i].num_weapons ; j++)
+        {
+            if (level->drawMap[level->rooms[i].weapons[j].position.y][level->rooms[i].weapons[j].position.x] == 'W')
+            {
+                draw_weapon(&level->rooms[i].weapons[j] , start_x , start_y);
+            }
+        }
+    }
+
+    for (int i = 0; i < level->num_rooms; i++) {
+        for (int j = 0; j < level->rooms[i].num_foods; j++) {
+            if (level->drawMap[level->rooms[i].foods[j].position.y][level->rooms[i].foods[j].position.x] == 'F')
+            {
+                draw_food(&level->rooms[i].foods[j] , start_x , start_y);
+            }
+            
+        }
+    }
+
+    for (int i = 0; i < level->num_rooms; i++) {
+        for (int j = 0; j < level->rooms[i].num_golds; j++) {
+
+        if (level->drawMap[level->rooms[i].golds[j].position.y][level->rooms[i].golds[j].position.x] == 'G')
+            {
+                draw_gold(&level->rooms[i].golds[j] , start_x , start_y);
+            }
+        }
+    }
+
+    for (int i = 0; i < level->num_rooms; i++) {
+        for (int j = 0; j < level->rooms[i].num_spells; j++) {
+            if (level->drawMap[level->rooms[i].spells[j].position.y][level->rooms[i].spells[j].position.x] == 'S')
+            {
+                draw_spell(&level->rooms[i].spells[j] , start_x , start_y);
+            }
+        }
+    }
+
+
     refresh();
+}
+
+void draw_player_info(Game *game) {
+    int start_x = 4;
+    int start_y = 25;
+    int width = 30;
+    int height = 10;
+
+    WINDOW *info_win = newwin(height, width, start_y, start_x);
+    box(info_win, 0, 0);
+    mvwprintw(info_win, 1, 8, "📜 Stats 📜");
+
+    mvwprintw(info_win, 3, 2, "🏆 Level: %d/%d", game->current_level + 1, game->total_levels);
+    mvwprintw(info_win, 5, 2, "⏳ Time: %02d:%02d", game->timer.minute, game->timer.second);
+    mvwprintw(info_win, 7, 2, "❤️ HP: %d", game->player.hp);
+    mvwprintw(info_win, 9, 2, "💰 Gold: %d", game->player.gold_collected);
+
+    wrefresh(info_win);
+}
+
+void draw_message_box(Game* game , int start_x, int start_y, int width, int height){
+
+    WINDOW* message_box = newwin(height , width, start_y , start_x);
+    box(message_box , 0 , 0);
+    wrefresh(message_box);
+    mvwprintw(message_box , 1 , 6 , "💬 Input Message 💬");
+    mvwprintw(message_box , height/2 -1  , 5 , "%s" ,game->game_message);
+    wrefresh(message_box);
+
+
 }
 
 void draw_game(Game *game) {
     clear();
     Level *level = &game->levels[game->current_level];
 
-    draw_map(level->drawMap, level->width, level->height);
+    int start_x = (COLS - level->width) / 2;
+    int start_y = (LINES - level->height) / 2;
+    draw_map(level);
     refresh();
-    mvaddch(game->player.position.y, game->player.position.x, '@');
-    mvprintw(level->height + 2, 0, "Player HP: %d", game->player.hp);
-    mvprintw(level->height + 3, 0, "Time Remaining: %02d:%02d", game->timer.minute, game->timer.second);
+    mvaddch(game->player.position.y + start_y, game->player.position.x + start_x, '@');
+
+    draw_message_box(game , 4 , start_y , 30 , 10);
+    draw_player_info(game);
+    // mvprintw(level->height + 4, start_x, "Player HP: %d", game->player.hp);
+    // mvprintw(level->height + 5, start_x, "Time Remaining: %02d:%02d", game->timer.minute, game->timer.second);
+
+    draw_weapon_menu(game);
+    draw_food_menu(game); 
+    draw_spell_menu(game);
 
     refresh();
 }
@@ -1515,7 +2129,7 @@ void draw_game(Game *game) {
 void init_music(Music *music, const char *track_path) {
     music->is_playing = 0;
     strncpy(music->current_track, track_path, sizeof(music->current_track) - 1);
-    music->volume = 64; // صدای متوسط
+    music->volume = 64; 
 }
 
 void *music_thread(void *arg) {
@@ -1726,94 +2340,6 @@ int create_window(int start_y, int start_x, int height, int width, int max_lengt
         }
     }
 }
-
-
-// int create_window(int start_y, int start_x, int height, int width, int max_length, char *input, int pass) {
-//     WINDOW *textbox = newwin(height, width, start_y, start_x);
-//     box(textbox, 0, 0); 
-//     wrefresh(textbox);
-//     refresh();
-//     // curs_set(1);
-//     // memset(input, 0, max_length + 1); 
-//     // wmove(textbox , height/2 , 22);
-//     // mvwaddstr(textbox, height/2 , 1, "Enter the password: ");
-//     // int ch;
-//     // int index = 0;
-//     int n =0 ;
-//     while(1){
-//         memset(input, 0, max_length + 1); 
-//         mvwaddstr(textbox, height/2 , 1, "Enter the password: ");
-//         wmove(textbox , height/2 , 22);
-//         int ch;
-//         int index = 0;
-//         while ((ch = wgetch(textbox)) != '\n') { 
-//             if (ch == KEY_BACKSPACE || ch == 127) { 
-//                 if (index > 0) {
-//                     input[--index] = '\0';
-//                     mvwaddch(textbox, 1, index + 1, ' '); 
-//                     wmove(textbox, 1, index + 1); 
-//                     wrefresh(textbox);
-//                 }
-//             }
-//             else if (ch == 'e')
-//             {   
-//                 delwin(textbox);
-//                 return 0;
-//             }
-        
-//             else if (index < max_length && isprint(ch)) { 
-//                 input[index++] = ch;
-//                 mvwaddch(textbox, 1, index, ch); 
-//                 wrefresh(textbox);
-//             }
-//         }
-//         int input_pass = atoi(input);
-//         if(input_pass == pass){
-//             delwin(textbox);
-//             return 1;
-//         }
-//         else if(input_pass != pass && n == 0){
-//             wattron(textbox, COLOR_PAIR(2));
-//             mvwprintw(textbox , 5 , 1 , "Warning! you entered a wrong password");
-//             wattroff(textbox,COLOR_PAIR(2));
-//             wrefresh(textbox);
-//             refresh();
-//             n++;
-//             sleep(1);
-//             werase(textbox);
-//             box(textbox, 0, 0);
-//             wrefresh(textbox);
-//         }
-//         else if(input_pass != pass && n == 1){
-//             wattron(textbox, COLOR_PAIR(2));
-//             mvwprintw(textbox , 5 , 1 , "Warning2! you entered a wrong password");
-//             wattroff(textbox,COLOR_PAIR(2));
-//             wrefresh(textbox);
-//             refresh();
-//             n++;
-//             sleep(1);
-//             werase(textbox);
-//             box(textbox, 0, 0);
-//             wrefresh(textbox);
-//         }
-//         else if(input_pass != pass && n == 2){
-//             wattron(textbox, COLOR_PAIR(2));
-//             mvwprintw(textbox , 5 , 1 , "The door was locked!");
-//             wattroff(textbox,COLOR_PAIR(2));
-//             wrefresh(textbox);
-//             refresh();
-//             sleep(1);
-//             delwin(textbox);
-//             return 0;
-//         }
-//     }
-//     // werase(textbox);
-//     // box(textbox, 0, 0);
-//     // wrefresh(textbox);
-//     // delwin(textbox); // حذف پنجره
-// }
-
-
 
 // WINDOW* creat_button(int start_y, int start_x, int width, int height , char* input){
 //     WINDOW *button = newwin(3, width + 2, start_y, start_x);
