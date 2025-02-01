@@ -15,6 +15,9 @@
 #include <string.h>
 #include<unistd.h>
 #include <locale.h>
+#include <signal.h>
+#include <SDL2/SDL.h>
+#include <SDL2/SDL_mixer.h>
 
 #define CUSTOM_ORANGE 10
 #define CUSTOM_PINK 11
@@ -101,6 +104,35 @@ typedef struct {
     int duration;      // مدت زمان اثرگذاری
 } Spell;
 
+typedef enum {
+    ROOM_NORMAL,
+    ROOM_GOLD,
+    ROOM_SPELL,
+    // ROOM_TRAP,
+    // ROOM_BOSS
+} RoomType;
+
+typedef enum {
+    Deaⅿon,
+    Dragon,      
+    Giant,     // هیولای گابلین
+    Snake,
+    Undead        // هیولای ارک
+} MonsterType;
+
+typedef struct {
+    Position position;         // موقعیت هیولا
+    // int follow_steps;          // تعداد قدم‌هایی که هیولا می‌تواند دنبال کند
+    int max_follow_steps;      // حداکثر تعداد خانه‌هایی که هیولا می‌تواند دنبال کند
+    char last_tile;            // ذخیره کاراکتر خانه قبلی
+    // bool can_move_out;         // آیا هیولا می‌تواند از اتاق خارج شود؟
+    MonsterType type;          // نوع هیولا (مار، مرده، گابلین و غیره)
+    int health;                // سلامت هیولا
+    int damage;                // قدرت ضربه هیولا
+    bool is_active;            // آیا هیولا فعال است و به دنبال بازیکن می‌رود؟
+} Monster;
+
+
 
 typedef struct {
     Position position;
@@ -108,6 +140,7 @@ typedef struct {
     int height;
     Door* doors; 
     Door pass_door;
+    RoomType type;
     // Position window;
     Position* object;
     Position pass_key;
@@ -124,6 +157,10 @@ typedef struct {
     int num_doors;
     int num_objects;
     int num_pass_door;
+    int num_monsters;
+    Monster* monsters;
+    // char music_path[100];
+    char *music_path;
 } Room;
 
 typedef struct {
@@ -157,6 +194,7 @@ typedef struct {
     int num_bread;
     int num_carrot;
     int gold_collected;
+    int color;
 } Player;
 
 typedef struct {
@@ -171,13 +209,16 @@ typedef struct {
 } Level;
 
 
-
 typedef struct {
-    pthread_t thread;          // رشته موسیقی
-    int is_playing;            // وضعیت پخش (1 = در حال پخش، 0 = متوقف)
-    char current_track[100];   // مسیر فایل موسیقی فعلی
-    int volume;                // میزان صدا (0 تا 128)
+    Mix_Music *music; // اشاره‌گر به موسیقی
+    int is_playing;    // وضعیت پخش (۱ = در حال پخش، ۰ = متوقف)
 } Music;
+// typedef struct {
+//     pthread_t thread;          // رشته موسیقی
+//     int is_playing;            // وضعیت پخش (1 = در حال پخش، 0 = متوقف)
+//     char current_track[100];   // مسیر فایل موسیقی فعلی
+//     int volume;                // میزان صدا (0 تا 128)
+// } Music;
 
 typedef struct {
     int total_time; 
@@ -191,12 +232,19 @@ typedef struct {
 }Timer;
 
 typedef struct {
+    int difficulty; // سطح سختی (مثلاً 0 = آسان، 1 = متوسط، 2 = سخت)
+    int player_color; // رنگ بازیکن
+} GameSettings;
+
+typedef struct {
     Player player;
     Level *levels;
     int total_levels;
     int current_level;
     Timer timer;
     char* game_message;
+    Music music;
+    int difficulty;
 } Game;
 
 typedef struct {
@@ -216,12 +264,12 @@ void create_textbox();
 int validate_email();
 int checkSignUp();
 int checkLogIn();
-void gameMenu(User user);
-void init_music();
-void *music_thread();
-void play_music();
-void stop_music();
-void set_music_volume();
+void gameMenu(User user , GameSettings* settings);
+// void init_music();
+// void *music_thread();
+// void play_music();
+// void stop_music();
+// void set_music_volume();
 WINDOW* create_button();
 
 // Function Prototypes
@@ -241,7 +289,7 @@ int bfs_corridor(char **map, Position start, Position target, int width, int hei
 void connect_rooms_with_bfs(Room *rooms, int num_rooms, char **map, int width, int height, Corridor ** corridors , int *num_corridors);
 void reveal_corridor(Position start, char **map, char **draw_map);
 void next_level(Game* game);
-void init_game(int n, User user);
+void init_game(int n, User user, GameSettings *settings);
 void load_game(Game* game , User user);
 void save_game(Game *game, User user);
 void init_game_timer(GameTimer *timer);
@@ -262,6 +310,19 @@ void draw_food_menu(Game *game);
 void toggle_food_menu(Game *game);
 void toggle_spell_menu(Game *game);
 void draw_spell_menu(Game *game);
+void play_room_music(Game *game, Room *room);
+void init_audio();
+void load_music(Music *music, const char *file_path);
+void stop_music(Music *music);
+void play_music(Music *music);
+void setting_menu(GameSettings *settings , User user);
+void change_player_color(GameSettings *settings , User user);
+void change_difficulty(GameSettings *settings , User user);
+void move_monsters(Game* game);
+void move_monster(Game* game , Monster* monster);
+void active_monsters(Room* room);
+void dis_active_monsters(Level* level);
+void draw_monster(Monster* monster , int start_x , int start_y);
 // void free_level(Level *level);
 // void connect_rooms_with_mst(Room *rooms, int num_rooms, char **map, int width, int height, Corridor **corridors, int *num_corridors);
 // void connect_rooms(Room *rooms, int num_rooms, char **map, Corridor **corridors, int *num_corridors);
@@ -295,8 +356,11 @@ int main(){
     init_pair(4, CUSTOM_ORANGE, COLOR_BLACK);
     // init_pair(5, CUSTOM_ORANGE, COLOR_BLACK);
     init_pair(6, CUSTOM_PINK, COLOR_BLACK);
+    init_pair(7, COLOR_MAGENTA, COLOR_BLACK);
+    init_pair(8, COLOR_BLUE , COLOR_BLACK);
 
     srand(time(0));
+    init_audio(); 
     // rand_color();
     firstMenu();
     endwin();
@@ -584,7 +648,8 @@ void logIn_menu() {
         refresh();
         sleep(2);
         clear();
-        gameMenu(user);
+        GameSettings settings = {0, 0};
+        gameMenu(user , &settings);
     } else {
         mvprintw(LINES / 2 - 8, COLS / 2 - 15, "Invalid credentials! Please try signing up.");
         refresh();
@@ -594,7 +659,7 @@ void logIn_menu() {
     }
 }
 
-void gameMenu(User user){
+void gameMenu(User user , GameSettings* settings){
 
     clear();
     refresh();
@@ -604,6 +669,8 @@ void gameMenu(User user){
     char *choices[] = {"New Game", "Load Game", "Point Schedule", "Settings"};
     int num_choices = 4;
     int choice = 0;
+
+    // GameSettings settings = {0, 0};
 
     
     int start_y = LINES / 2 - 6;
@@ -643,12 +710,17 @@ void gameMenu(User user){
 
     if (choice == 0)
     {
-        init_game(0 , user);
+        init_game(0 , user , settings);
     }
     else if(choice == 1){
-        init_game(1 , user);
+        init_game(1 , user , settings);
     }
-    
+    else if(choice == 2){
+        
+    }
+    else if(choice == 3){
+        setting_menu(settings , user);
+    }
 
 
     clear();
@@ -666,6 +738,128 @@ void gameMenu(User user){
     // }
     
 
+}
+
+void change_difficulty(GameSettings *settings , User user) {
+    char *difficulty_levels[] = {"Easy 🟢", "Medium 🟡", "Hard 🔴"};
+    int diff_choice = settings->difficulty;
+
+    while (1) {
+        clear();
+        mvprintw(LINES / 2 - 3, COLS / 2 - 10, "Choose Difficulty Level:");
+        for (int i = 0; i < 3; i++) {
+            if (i == diff_choice) attron(A_BOLD);
+            mvprintw(LINES / 2 + i, COLS / 2 - 5, "%s", difficulty_levels[i]);
+            attroff(A_BOLD);
+        }
+        refresh();
+
+        int ch = getch();
+        if (ch == KEY_UP) diff_choice = (diff_choice == 0) ? 2 : diff_choice - 1;
+        else if (ch == KEY_DOWN) diff_choice = (diff_choice == 2) ? 0 : diff_choice + 1;
+        else if (ch == 10) break;
+    }
+
+    settings->difficulty = diff_choice;
+
+    setting_menu(settings , user);
+}
+
+
+// void change_difficulty(GameSettings *settings) {
+//     clear();
+//     refresh();
+//     draw_border();
+
+//     char *difficulty_levels[] = {"Easy 🟢", "Normal 🔵", "Hard 🔴"};
+//     int choice = game->difficulty;
+
+//     int start_y = LINES / 2;
+//     int start_x = COLS / 2 - 10;
+
+//     while (1) {
+//         mvprintw(start_y, start_x, "🎮 Difficulty: %s", difficulty_levels[choice]);
+//         mvprintw(start_y + 2, start_x, "⬅ Left / Right ➡ to change");
+//         mvprintw(start_y + 3, start_x, "🔙 Press Enter to confirm");
+//         refresh();
+
+//         int ch = getch();
+//         if (ch == KEY_LEFT) {
+//             choice = (choice == 0) ? 2 : choice - 1;
+//         } else if (ch == KEY_RIGHT) {
+//             choice = (choice == 2) ? 0 : choice + 1;
+//         } else if (ch == 10) { // Enter key
+//             game->difficulty = choice;
+//             break;
+//         }
+//     }
+
+//     setting_menu(settings);
+// }
+
+void change_player_color(GameSettings *settings , User user) {
+    char *colors[] = {"Red 🔴", "Blue 🔵", "Green 🟢"};
+    int color_choice = settings->player_color;
+
+    while (1) {
+        clear();
+        mvprintw(LINES / 2 - 3, COLS / 2 - 10, "Choose Player Color:");
+        for (int i = 0; i < 3; i++) {
+            if (i == color_choice) attron(A_BOLD);
+            mvprintw(LINES / 2 + i, COLS / 2 - 5, "%s", colors[i]);
+            attroff(A_BOLD);
+        }
+        refresh();
+
+        int ch = getch();
+        if (ch == KEY_UP) color_choice = (color_choice == 0) ? 2 : color_choice - 1;
+        else if (ch == KEY_DOWN) color_choice = (color_choice == 2) ? 0 : color_choice + 1;
+        else if (ch == 10) break;
+    }
+
+
+    settings->player_color = color_choice;
+
+    setting_menu(settings , user);
+}
+
+
+void setting_menu(GameSettings *settings , User user) {
+    clear();
+    refresh();
+
+    char *choices[] = {"Difficulty ⚔️", "Player Color 🎨", "Back 🔙"};
+    int num_choices = 3;
+    int choice = 0;
+
+    int start_y = LINES / 2 - 6;
+    int start_x = COLS / 2 - 12;
+
+    while (1) {
+        for (int i = 0; i < num_choices; i++) {
+            WINDOW *button = newwin(3, 30, start_y + i * 4, start_x);
+            box(button, 0, 0);
+            if (i == choice) wattron(button, A_BOLD);
+            mvwprintw(button, 1, 15 - strlen(choices[i]) / 2, "%s", choices[i]);
+            wattroff(button, A_BOLD);
+            wrefresh(button);
+            delwin(button);
+        }
+
+        int ch = getch();
+        if (ch == KEY_UP) choice = (choice == 0) ? num_choices - 1 : choice - 1;
+        else if (ch == KEY_DOWN) choice = (choice == num_choices - 1) ? 0 : choice + 1;
+        else if (ch == 10) break;
+    }
+
+    if (choice == 0) {
+        change_difficulty(settings , user);
+    } else if (choice == 1) {
+        change_player_color(settings , user);
+    }
+    else if(choice == 2){
+        gameMenu(user , settings);
+    }
 }
 
 void save_game(Game *game, User user) {
@@ -787,7 +981,7 @@ void load_game(Game *game, User user) {
     // printf("Game loaded successfully!\n");
 }
 
-void init_game(int n , User user){
+void init_game(int n , User user , GameSettings *settings){
     // initscr();
     noecho();
     // keypad(stdscr, TRUE);
@@ -825,6 +1019,13 @@ void init_game(int n , User user){
         game.player.num_carrot = 0;
         game.player.num_fish = 0;
         game.player.num_egg = 0;
+        game.music.music = NULL;
+        game.music.is_playing = 0;
+        game.difficulty = settings->difficulty;
+        game.player.color = settings->player_color;
+        game.game_message = "Lets go!";
+        // game.music.is_playing = 0;
+        // game.music.volume = 64;
 
 
         // Initially reveal the starting room
@@ -852,6 +1053,8 @@ void init_game(int n , User user){
             break;
         }
         move_player(&game, key);
+        move_monsters(&game);
+        draw_game(&game);
         refresh();
     }
 
@@ -976,10 +1179,8 @@ Room create_room(int y, int x, int width, int height) {
     room.height = height;
     room.num_doors = 1 + rand() % 2;
     room.num_objects = rand() % 2;
-    room.num_traps = 1 + rand() % 2;///level
     room.doors = malloc(room.num_doors * sizeof(Door));
     room.object = malloc(room.num_objects * sizeof(Position));
-    room.traps = malloc(room.num_traps * sizeof(Trap));
     room.num_pass_door = rand()%2;
     room.num_weapons = rand() % 2;
     room.weapons = malloc(room.num_weapons * sizeof(Weapon));
@@ -987,8 +1188,56 @@ Room create_room(int y, int x, int width, int height) {
     room.foods = malloc(room.num_foods * sizeof(Food));
     room.num_golds = rand() % 3;
     room.golds = malloc(room.num_golds * sizeof(Gold));
-    room.num_spells = rand() % 2;
+    room.music_path = NULL;/////
+    room.num_monsters = 1 + rand() % 2;
+    room.monsters = malloc(room.num_monsters * sizeof(Monster));
+
+    int rand_type = rand() % 100;
+    if (rand_type < 60) room.type = ROOM_NORMAL;   // 60% احتمال اتاق معمولی
+    else if (rand_type < 75) room.type = ROOM_GOLD; // 15% احتمال اتاق گنج
+    else if (rand_type < 100) room.type = ROOM_SPELL; // 25% احتمال اتاق طلسم
+    // else room.type = ROOM_TRAP;
+
+    if (room.type == ROOM_NORMAL)
+    {
+        room.num_traps = 1 + rand() % 2;///level
+        room.num_spells = rand() % 2;
+        // room.music_track = malloc(100 * sizeof(char));
+        // room.music_track = strdup("Musics/Butcher_mp3.mp3"); 
+        // strcpy(room.music_path, "Musics/Butcher_mp3.mp3");
+        room.music_path = strdup("Musics/Butcher_mp3.mp3");
+
+
+        /* code */
+    }
+    else if (ROOM_GOLD)
+    {
+        room.num_traps = 4 + rand() % 2;///level
+        room.num_spells = rand() % 2;
+        // room.music_path = strdup("Musics/Best_Shot_mp3.mp3"); 
+        // strcpy(room.music_path, "Musics/Best_Shot_mp3.mp3");
+        room.music_path = strdup("Musics/Best_Shot_mp3.mp3");
+
+
+        /* code */
+    }
+    else if (ROOM_SPELL){
+        room.num_traps = 1 + rand() % 2;///level
+        room.num_spells = 2 + rand() % 2;
+        // room.music_path = strdup("Musics/Halloween_Party_Night_mp3.mp3"); 
+        // strcpy(room.music_path, "Musics/Halloween_Party_Night_mp3.mp3");
+        room.music_path = strdup("Musics/Halloween_Party_Night_mp3.mp3");
+
+
+
+
+    }
+
+    room.traps = malloc(room.num_traps * sizeof(Trap));
     room.spells = malloc(room.num_spells * sizeof(Spell));
+
+    
+    
 
 
     for (int i = 0; i < room.num_doors; i++) {
@@ -1089,6 +1338,61 @@ Room create_room(int y, int x, int width, int height) {
         room.traps[i].position.x = x + 1 + rand() % (width - 2);
         room.traps[i].position.y = y + 1 + rand() % (height - 2);
     }
+    for (int i = 0; i < room.num_monsters; i++)
+    {
+        Monster* monster = &room.monsters[i];
+        monster->type = rand() % 5;
+        switch (monster->type)
+        {
+        case Deaⅿon:
+            monster->damage = 1;
+            monster->health = 5;
+            monster->is_active = 0;
+            monster->last_tile = '.';
+            monster->max_follow_steps = 5;
+            monster->position.x = x + 1 + rand() % (width - 2);
+            monster->position.y = y + 1 + rand() % (height - 2);
+            break;
+        case Dragon:
+            monster->damage = 2;
+            monster->health = 10;
+            monster->is_active = 0;
+            monster->last_tile = '.';
+            monster->max_follow_steps = 7;
+            monster->position.x = x + 1 + rand() % (width - 2);
+            monster->position.y = y + 1 + rand() % (height - 2);
+            break;
+        case Giant:
+            monster->damage = 3;
+            monster->health = 15;
+            monster->is_active = 0;
+            monster->last_tile = '.';
+            monster->max_follow_steps = 7;
+            monster->position.x = x + 1 + rand() % (width - 2);
+            monster->position.y = y + 1 + rand() % (height - 2);
+            break;
+        case Snake:
+            monster->damage = 4;
+            monster->health = 20;
+            monster->is_active = 0;
+            monster->last_tile = '.';
+            monster->max_follow_steps = 1000;
+            monster->position.x = x + 1 + rand() % (width - 2);
+            monster->position.y = y + 1 + rand() % (height - 2);
+            break;
+        case Undead:
+            monster->damage = 5;
+            monster->health = 30;
+            monster->is_active = 0;
+            monster->last_tile = '.';
+            monster->max_follow_steps = 1000;
+            monster->position.x = x + 1 + rand() % (width - 2);
+            monster->position.y = y + 1 + rand() % (height - 2);
+            break;        
+        }
+
+    }
+    
     
     
     // int num_win = rand()% 1;
@@ -1172,6 +1476,11 @@ void add_room_to_map(Room room, char **map, int s) {
     for (int i = 0; i < room.num_spells; i++) {
         map[room.spells[i].position.y][room.spells[i].position.x] = 'S'; 
     }
+
+    for (int i = 0; i < room.num_monsters; i++) {
+        map[room.spells[i].position.y][room.spells[i].position.x] = 'M'; 
+    }
+
     if (s == 1)
     {
         map[room.position.y + 1 +rand() % (room.height - 2)][room.position.x + 1 +rand() % (room.width - 2)] = 'P';
@@ -1184,7 +1493,7 @@ void reveal_room(Room room, char **map, char** drawMap) {
     for (int i = 0; i < room.height; i++) {
         for (int j = 0; j < room.width; j++) {
             char current_char = map[room.position.y + i][room.position.x + j];
-            if (current_char == '-' || current_char == '|' || current_char == '.' || current_char == '+' || current_char == 'O' || current_char == 'T' || current_char == 'P'|| current_char == '@' || current_char == '&' || current_char == 'F' || current_char == 'W' || current_char == 'G' || current_char == 'S') {
+            if (current_char == '-' || current_char == '|' || current_char == '.' || current_char == '+' || current_char == 'O' || current_char == 'T' || current_char == 'P'|| current_char == '@' || current_char == '&' || current_char == 'F' || current_char == 'W' || current_char == 'G' || current_char == 'S' || current_char == 'M') {
                 // map[room.position.y + i][room.position.x + j] = current_char;
                 if (current_char == 'T')
                 {
@@ -1551,6 +1860,80 @@ void reveal_golds(Gold* gold , Level* level , Game* game){
     level->drawMap[gold->position.y][gold->position.x] = '.';
 }
 
+
+void init_audio() {
+    if (SDL_Init(SDL_INIT_AUDIO) < 0) {
+        printf("Failed to initialize SDL: %s\n", SDL_GetError());
+        exit(1);
+    }
+
+    if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048) < 0) {
+        printf("Failed to initialize SDL_mixer: %s\n", Mix_GetError());
+        exit(1);
+    }
+}
+
+
+void load_music(Music *music, const char *file_path) {
+    if (music == NULL) return; // بررسی مقداردهی
+    if (music->music != NULL) {
+        Mix_FreeMusic(music->music);
+    }
+
+    music->music = Mix_LoadMUS(file_path);
+    if (!music->music) {
+        printf("Failed to load music: %s\n", Mix_GetError());
+    }
+}
+
+void stop_music(Music *music) {
+    if (Mix_PlayingMusic()) {
+        Mix_HaltMusic();
+    }
+    music->is_playing = 0;
+}
+
+void play_music(Music *music) {
+    if (music == NULL || music->music == NULL) return;
+
+    if (Mix_PlayingMusic()) {
+        Mix_HaltMusic();
+    }
+
+    Mix_PlayMusic(music->music, -1);
+    music->is_playing = 1;
+}
+
+void play_room_music(Game *game, Room *room) {
+    if (room->music_path == NULL || room->music_path[0] == '\0') { 
+        return;
+    }
+
+    if (!Mix_PlayingMusic()) {
+        load_music(&game->music, room->music_path);
+        play_music(&game->music);
+    }
+}
+
+void active_monsters(Room* room){
+    for (int i = 0; i < room->num_monsters; i++)
+    {
+        room->monsters[i].is_active = 1;
+    }
+}
+
+void dis_active_monsters(Level* level){
+    for (int i = 0; i < level->num_rooms; i++)
+    {
+        for (int j = 0; j < level->rooms[i].num_monsters; j++)
+        {
+            level->rooms[i].monsters[j].is_active = 0;
+        }
+        
+    }
+    
+}
+
 void move_player(Game *game, int key) {
 
     if (key == 'g') {
@@ -1588,10 +1971,15 @@ void move_player(Game *game, int key) {
                 for (int j = 0; j < room.num_doors; j++) {
                     if (new_pos.y == room.doors[j].position.y && new_pos.x == room.doors[j].position.x) {
                         reveal_room(room, map, drawMap);
+                        active_monsters(&room);
                     }
                 }
             }
         } else if (next_tile == '#') {
+            stop_music(&game->music);
+            dis_active_monsters(level);
+
+            // curs_set(0);
             reveal_corridor(new_pos, map, drawMap);
         } else if (next_tile == 'T') {
             game->player.hp--;
@@ -1599,6 +1987,18 @@ void move_player(Game *game, int key) {
             next_level(game); 
             return;
         }
+        else if(next_tile == '.'){
+
+            for (int i = 0; i < level->num_rooms; i++) {
+                Room room = level->rooms[i];
+                if (new_pos.y >= room.position.y && new_pos.y < room.position.y + room.height && new_pos.x >= room.position.x && new_pos.x < room.position.x + room.width)
+                {
+                    play_room_music(game, &room);
+                    break;
+                }
+            }
+        }
+
         else if (next_tile == '@')
         {
 
@@ -1611,19 +2011,6 @@ void move_player(Game *game, int key) {
                 }
             }
             if (n == 0) return;
-            // int n;
-            // for (int i = 0; i < level->num_rooms; i++) {
-            //     Room room = level->rooms[i];
-            //     if (new_pos.y == room.pass_key.y && new_pos.x == room.pass_key.x)
-            //     {   
-            //         n = open_pass_door(&room , game);
-            //         break;
-            //     }
-            // }
-            // if (n == 0)
-            // {
-            //     return;
-            // }
             
         }
         else if (next_tile == '&'){
@@ -1640,18 +2027,6 @@ void move_player(Game *game, int key) {
                 }
             }
             refresh();
-            // for (int i = 0; i < level->num_rooms; i++) {
-            //     Room room = level->rooms[i];
-            //     if (new_pos.y == room.pass_key.y && new_pos.x == room.pass_key.x)
-            //     {   
-            //         ThreadArgs* args = malloc(sizeof(ThreadArgs)); // تخصیص حافظه دینامیک
-            //         args->game = game; // مقداردهی به اشاره‌گر Game
-            //         args->room = &room;
-            //         pthread_t password_timer;
-            //         pthread_create(&password_timer, NULL , creat_password, (void*)args);
-            //         break;
-            //     }
-            // }
             
         }
         else if (next_tile == 'W')
@@ -1711,6 +2086,55 @@ void move_player(Game *game, int key) {
 
         game->player.position = new_pos;
     }
+}
+
+void move_monster(Game* game , Monster* monster){
+    Level *level = &game->levels[game->current_level];
+    Position new_pos = monster->position;
+    Position player_pos = game->player.position;
+
+        
+    if (player_pos.x > monster->position.x) new_pos.x++;
+    else if (player_pos.x < monster->position.x) new_pos.x--;
+
+    if (player_pos.y > monster->position.y) new_pos.y++;
+    else if (player_pos.y < monster->position.y) new_pos.y--;
+
+    char next_tile = level->map[new_pos.y][new_pos.x];
+
+
+    if (next_tile == '-' || next_tile == '|' || next_tile == '+' || next_tile == '@') {
+        return;  
+    }
+
+        
+    level->map[monster->position.y][monster->position.x] = monster->last_tile;
+    level->drawMap[monster->position.y][monster->position.x] = monster->last_tile; 
+    
+    monster->last_tile = next_tile;
+    monster->position = new_pos;
+    level->map[new_pos.y][new_pos.x] = 'M';
+    level->drawMap[monster->position.y][monster->position.x] = 'M';
+}
+
+void move_monsters(Game* game){
+    Level* level = &game->levels[game->current_level];
+
+    for (int i = 0; i < level->num_rooms; i++)
+    {
+        Room* room = &level->rooms[i];
+        for (int j = 0; j < room->num_monsters; j++)
+        {
+            Monster *monster = &room->monsters[j];
+            if (monster->is_active)
+            {
+                move_monster(game ,monster);
+            }
+            
+        }
+        
+    }
+    
 }
 
 void* creat_password(void* arg){
@@ -1797,7 +2221,7 @@ void draw_food_menu(Game *game) {
     box(food_win, 0, 0);
     mvwprintw(food_win, 1, 10, "🍽 Food 🍽");
 
-    // نمایش غذاهای موجود
+    
     for (int i = 0; i < 5; i++) {
         char *food_icon;
         int food_count;
@@ -1984,6 +2408,18 @@ void draw_spell(Spell *spell , int start_x , int start_y) {
     mvprintw(spell->position.y + start_y, spell->position.x + start_x, "🔮");
 }
 
+void draw_monster(Monster* monster , int start_x , int start_y){
+    char *monster_icon;
+    switch (monster->type) {
+        case Deaⅿon:  monster_icon = "D"; break;
+        case Dragon:   monster_icon = "F"; break;
+        case Giant:  monster_icon = "G"; break;
+        case Snake: monster_icon = "S"; break;
+        case Undead:   monster_icon = "U"; break;
+    }
+    mvprintw(monster->position.y + start_y, monster->position.x + start_x, "%s", monster_icon);
+}
+
 void draw_border_around_map(int start_x, int start_y, int width, int height) {
 
     mvprintw(start_y - 1, start_x - 1, "🔲");
@@ -2010,12 +2446,42 @@ void draw_map(Level *level) {
 
     int start_x = (COLS - level->width) / 2;
     int start_y = (LINES - level->height) / 2;
+
     for (int y = 0; y < level->height; y++) {
         for (int x = 0; x < level->width; x++) {
             char tile = level->drawMap[y][x];
+
+            int found_room = 0; 
+
+            
+            for (int i = 0; i < level->num_rooms; i++) {
+                Room room = level->rooms[i];
+
+                if (x >= room.position.x && x < room.position.x + room.width &&
+                    y >= room.position.y && y < room.position.y + room.height) {
+
+                    found_room = 1; 
+
+                    if (room.type == ROOM_GOLD)
+                        attron(COLOR_PAIR(3)); 
+                    else if (room.type == ROOM_SPELL)
+                        attron(COLOR_PAIR(7)); 
+                    else
+                        attron(COLOR_PAIR(1)); 
+
+                    break;
+                }
+            }
+
+            
             mvaddch(y + start_y, x + start_x, tile);
+
+            
+            if (found_room)
+                attroff(COLOR_PAIR(1)); 
         }
     }
+
     draw_border_around_map(start_x, start_y, level->width, level->height);
 
 
@@ -2069,6 +2535,15 @@ void draw_map(Level *level) {
         }
     }
 
+    for (int i = 0; i < level->num_rooms; i++) {
+        for (int j = 0; j < level->rooms[i].num_monsters; j++) {
+            if (level->drawMap[level->rooms[i].monsters[j].position.y][level->rooms[i].monsters[j].position.x] == 'M')
+            {
+                draw_monster(&level->rooms[i].monsters[j] , start_x , start_y);
+            }
+        }
+    }
+
 
     refresh();
 }
@@ -2111,7 +2586,29 @@ void draw_game(Game *game) {
     int start_y = (LINES - level->height) / 2;
     draw_map(level);
     refresh();
-    mvaddch(game->player.position.y + start_y, game->player.position.x + start_x, '@');
+    switch (game->player.color)
+    {
+    case 1:
+        attron(COLOR_PAIR(5));
+        mvaddch(game->player.position.y + start_y, game->player.position.x + start_x, '@');
+        attroff(COLOR_PAIR(5));
+        break;
+    case 2:
+        attron(COLOR_PAIR(8));
+        mvaddch(game->player.position.y + start_y, game->player.position.x + start_x, '@');
+        attroff(COLOR_PAIR(8));
+        break;
+    case 3:
+        attron(COLOR_PAIR(2));
+        mvaddch(game->player.position.y + start_y, game->player.position.x + start_x, '@');
+        attroff(COLOR_PAIR(2));
+        break;
+    default:
+        mvaddch(game->player.position.y + start_y, game->player.position.x + start_x, '@');
+        break;
+    }
+    // attron(COLOR_PAIR(1));
+    // mvaddch(game->player.position.y + start_y, game->player.position.x + start_x, '@');
 
     draw_message_box(game , 4 , start_y , 30 , 10);
     draw_player_info(game);
@@ -2123,44 +2620,6 @@ void draw_game(Game *game) {
     draw_spell_menu(game);
 
     refresh();
-}
-
-
-void init_music(Music *music, const char *track_path) {
-    music->is_playing = 0;
-    strncpy(music->current_track, track_path, sizeof(music->current_track) - 1);
-    music->volume = 64; 
-}
-
-void *music_thread(void *arg) {
-    Music *music = (Music *)arg;
-    while (music->is_playing) {
-        char command[150];
-        snprintf(command, sizeof(command), "mpg123 -q %s", music->current_track);
-        system(command);
-    }
-    return NULL;
-}
-
-void play_music(Music *music) {
-    if (music->is_playing) return; // اگر در حال پخش است، تکرار نکن
-    music->is_playing = 1;
-    pthread_create(&music->thread, NULL, music_thread, music);
-}
-
-void stop_music(Music *music) {
-    if (!music->is_playing) return; // اگر در حال پخش نیست، متوقف نکن
-    music->is_playing = 0;
-    pthread_join(music->thread, NULL);
-}
-
-void set_music_volume(Music *music, int volume) {
-    if (volume < 0) volume = 0;
-    if (volume > 128) volume = 128;
-    music->volume = volume;
-    char command[100];
-    snprintf(command, sizeof(command), "amixer set Master %d%%", volume);
-    system(command);
 }
 
 
