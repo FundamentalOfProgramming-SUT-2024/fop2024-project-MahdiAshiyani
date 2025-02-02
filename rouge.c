@@ -71,8 +71,8 @@ typedef struct {
 } Food;
 
 typedef enum {
-    WEAPON_Sword,  
-    WEAPON_Mace,    
+    WEAPON_Mace,
+    WEAPON_Sword,      
     WEAPON_Normal_Arrow,    
     WEAPON_Magic_Wand,  
     WEAPON_Dagger  
@@ -93,8 +93,8 @@ typedef struct {
     Position position;  
     WeaponType type;    
     int attack_power;   // قدرت حمله
-    int durability;     // دوام اسلحه (چند بار قابل استفاده است)
-    int special_effect; //    // دوام اسلحه (چند بار قابل استفاده است)
+    // int durability;     // دوام اسلحه (چند بار قابل استفاده است)
+    // int special_effect; //    // دوام اسلحه (چند بار قابل استفاده است)
 } Weapon;
 
 typedef struct {
@@ -184,6 +184,7 @@ typedef struct {
     int num_normal_arrow;
     int num_magic_wand;
     int num_dagger;
+    int num_weapons;
     int hungry;
     int num_health_spell;
     int num_speed_spell;
@@ -195,6 +196,8 @@ typedef struct {
     int num_carrot;
     int gold_collected;
     int color;
+    Weapon* weapons;
+    Weapon selected_weapon;
 } Player;
 
 typedef struct {
@@ -300,7 +303,8 @@ void* creat_password(void* arg);
 void draw_weapon(Weapon *weapon , int start_x , int start_y);
 void reveal_weapons(Weapon* weapon , Level* Level , Game* game);
 void reveal_spells(Spell* spell , Level* Level , Game* game);
-void reveal_foods(Food* food, Level* Level , Game* game);
+// void reveal_foods(Food* food, Level* Level , Game* game);
+void reveal_foods(Food* food, Room* room , Level* level , Game* game);
 void reveal_golds(Gold* gold , Level* Level , Game* game);
 void toggle_weapon_menu(Game *game);
 void draw_weapon_menu(Game *game);
@@ -323,6 +327,14 @@ void move_monster(Game* game , Monster* monster);
 void active_monsters(Room* room);
 void dis_active_monsters(Level* level);
 void draw_monster(Monster* monster , int start_x , int start_y);
+Monster* find_monster_at(Game *game, Position pos);
+void handle_battle(Game *game, Monster *monster);
+const char* weapon_type_to_str(WeaponType type);
+int check_weapon_ammo(Player *player);
+void reduce_weapon_ammo(Player *player);
+void remove_monster(Level *level, Monster *monster);
+void game_over(Game *game, int won);
+int check_weapon_exists(Player *player, WeaponType type);
 // void free_level(Level *level);
 // void connect_rooms_with_mst(Room *rooms, int num_rooms, char **map, int width, int height, Corridor **corridors, int *num_corridors);
 // void connect_rooms(Room *rooms, int num_rooms, char **map, Corridor **corridors, int *num_corridors);
@@ -685,7 +697,6 @@ void gameMenu(User user , GameSettings* settings){
             refresh();
             // WINDOW *button = (COLS / 2 - 12 + i*4,LINES / 2 - 6,24, 3,choices[i]);
             if (i == choice) {
-                // دکمه انتخاب‌شده
                 // wbkgd(button, COLOR_PAIR(2));
                 wattron(button, A_BOLD);      
             } else {
@@ -723,10 +734,10 @@ void gameMenu(User user , GameSettings* settings){
     }
 
 
-    clear();
-    mvprintw(LINES / 2, COLS / 2 - 10, "You selected: %s", choices[choice]);
-    refresh();
-    getch();
+    // clear();
+    // mvprintw(LINES / 2, COLS / 2 - 10, "You selected: %s", choices[choice]);
+    // refresh();
+    // getch();
 
 
     // clear();
@@ -1024,6 +1035,16 @@ void init_game(int n , User user , GameSettings *settings){
         game.difficulty = settings->difficulty;
         game.player.color = settings->player_color;
         game.game_message = "Lets go!";
+        game.player.weapons = malloc(1 * sizeof(Weapon));
+        Weapon mace;
+        mace.attack_power = 5;
+        mace.position.y =-1;
+        mace.position.x = -1;
+        mace.type = WEAPON_Mace;
+        game.player.weapons[0] = mace;
+        game.player.num_mace = 1000;
+        game.player.num_weapons = 1;
+        game.player.selected_weapon = game.player.weapons[0];
         // game.music.is_playing = 0;
         // game.music.volume = 64;
 
@@ -1049,6 +1070,7 @@ void init_game(int n , User user , GameSettings *settings){
         refresh();
         key = getch();
         if (key == 'q'){
+            // pause_menu();
             save_game(&game , user);
             break;
         }
@@ -1099,7 +1121,7 @@ void *game_timer_thread(void *arg) {
         
         if (game->player.hp <= 0) {
             clear();
-            mvprintw(level->height + 6, 0, "Game Over! You lost.");
+            mvprintw(LINES/2, COLS/2-10, "Game Over! You lost.");
             refresh();
             sleep(3);
             endwin();
@@ -1111,7 +1133,7 @@ void *game_timer_thread(void *arg) {
 
     
     clear();
-    mvprintw(level->height + 6, 0, "Game Over! Time's up.");
+    mvprintw(LINES/2, COLS/2-10, 0, "Game Over! Time's up.");
     refresh();
     sleep(3);
     endwin();
@@ -1299,17 +1321,31 @@ Room create_room(int y, int x, int width, int height) {
     for (int i = 0; i < room.num_foods; i++) {
         room.foods[i].position.x = x + 1 + rand() % (width - 2);
         room.foods[i].position.y = y + 1 + rand() % (height - 2);
-        room.foods[i].type = rand() % 5;
+        room.foods[i].type = rand() % 2;
         room.foods[i].hp_restore = (rand() % 15) + 5;
     }
 
     for (int i = 0; i < room.num_weapons; i++) {
+        room.weapons[i].type = 1 + rand() % 4;
+        switch (room.weapons[i].type)
+        {
+        case WEAPON_Sword:
+            room.weapons[i].attack_power = 10;
+            break;
+        case WEAPON_Dagger:
+            room.weapons[i].attack_power = 12;
+            break;
+        case WEAPON_Magic_Wand:
+            room.weapons[i].attack_power = 15;
+            break;
+        case WEAPON_Normal_Arrow:
+            room.weapons[i].attack_power = 5;
+            break;           
+        } 
         room.weapons[i].position.x =  x + 1 + rand() % (width - 2);
         room.weapons[i].position.y =  y + 1 + rand() % (height - 2);
-        room.weapons[i].type = rand() % 5; 
-        room.weapons[i].attack_power = (rand() % 50) + 5;
-        room.weapons[i].durability = (rand() % 5) + 1;
-        room.weapons[i].special_effect = rand() % 3; 
+        // room.weapons[i].durability = (rand() % 5) + 1;
+        // room.weapons[i].special_effect = rand() % 3; 
     }
     // room.pass_door = malloc(room.num_pass_door * sizeof(Door));
 
@@ -1764,7 +1800,7 @@ void reveal_weapons(Weapon* weapon , Level* level , Game* game){
 
 }
 
-void reveal_foods(Food* food , Level* level , Game* game){
+void reveal_foods(Food* food, Room* room , Level* level , Game* game){
     switch (food->type) {
         case FOOD_Apple:  {
             game->player.hungry -= 2;
@@ -1794,18 +1830,45 @@ void reveal_foods(Food* food , Level* level , Game* game){
     }
 
 
-    for (int i = 0; i < level->num_rooms; i++) {
-        for (int j = 0; j < level->rooms[i].num_foods; j++) {
-            if (&level->rooms[i].foods[j] == food) {
+    // for (int i = 0; i < level->num_rooms; i++) {
+    //     for (int j = 0; j < level->rooms[i].num_foods; j++) {
+    //         if (&level->rooms[i].foods[j] == food) {
 
-                for (int k = j; k < level->rooms[i].num_foods - 1; k++) {
-                    level->rooms[i].foods[k] = level->rooms[i].foods[k + 1];
+    //             for (int k = j; k < level->rooms[i].num_foods - 1; k++) {
+    //                 level->rooms[i].foods[k] = level->rooms[i].foods[k + 1];
+    //             }
+    //             level->rooms[i].num_foods--;
+    //             break;
+    //         }
+    //     }
+    // }
+
+    // for (int i = 0; i < level->num_rooms; i++) {
+        for (int j = 0; j < room->num_foods; j++) {
+            if (room->foods[j].position.x == food->position.x &&
+                room->foods[j].position.y == food->position.y) {
+
+            // حذف غذا از آرایه
+                for (int k = j; k < room->num_foods - 1; k++) {
+                    room->foods[k] = room->foods[k + 1];
                 }
-                level->rooms[i].num_foods--;
+                room->num_foods--;  // کاهش تعداد غذاهای موجود
                 break;
             }
         }
-    }
+    // }
+
+
+    // for (int j = 0; j < room->num_foods; j++) {
+        
+
+    //         for (int k = j; k < level->rooms[i].num_foods - 1; k++) {
+    //             level->rooms[i].foods[k] = level->rooms[i].foods[k + 1];
+    //         }
+    //         level->rooms[i].num_foods--;
+    //         break;
+        
+    // }
 
 
     level->map[food->position.y][food->position.x] = '.';
@@ -1934,10 +1997,39 @@ void dis_active_monsters(Level* level){
     
 }
 
+void add_weapon_to_player(Game* game, Weapon* new_weapon){
+    for (int i = 0; i < game->player.num_weapons; i++) {
+        if (game->player.weapons[i].type == new_weapon->type) {
+            // اگر اسلحه از قبل موجود باشد، تعداد آن را افزایش می‌دهیم
+            switch (new_weapon->type) {
+                case WEAPON_Sword: game->player.num_sword++; break;
+                // case WEAPON_Mace: symbol = "⚒"; break;
+                case WEAPON_Normal_Arrow: game->player.num_normal_arrow++; break;
+                case WEAPON_Magic_Wand: game->player.num_magic_wand; break;
+                case WEAPON_Dagger: game->player.num_dagger++; break; 
+            }
+            return;
+        }
+    }
+    
+    // اگر اسلحه جدید است، آن را به لیست سلاح‌ها اضافه می‌کنیم
+    game->player.num_weapons += 1;
+    switch (new_weapon->type) {
+        case WEAPON_Sword: game->player.num_sword++; break;
+                // case WEAPON_Mace: symbol = "⚒"; break;
+        case WEAPON_Normal_Arrow: game->player.num_normal_arrow++; break;
+        case WEAPON_Magic_Wand: game->player.num_magic_wand; break;
+        case WEAPON_Dagger: game->player.num_dagger++; break; 
+    }
+    game->player.weapons = realloc(game->player.weapons, game->player.num_weapons * sizeof(Weapon));
+    game->player.weapons[game->player.num_weapons - 1] = *new_weapon;
+}
+
 void move_player(Game *game, int key) {
 
     if (key == 'g') {
-        toggle_weapon_menu(game);
+        // toggle_weapon_menu(game);
+        draw_weapon_menu(game);
         return;
     }
 
@@ -1964,7 +2056,7 @@ void move_player(Game *game, int key) {
 
     char next_tile = map[new_pos.y][new_pos.x];
 
-    if (next_tile == '.' || next_tile == '+' || next_tile == '#' || next_tile == 'T' || next_tile == 'P' || next_tile == '@' || next_tile == '&' || next_tile == 'W' || next_tile == 'F' || next_tile == 'G' || next_tile == 'S') {
+    if (next_tile == '.' || next_tile == '+' || next_tile == '#' || next_tile == 'T' || next_tile == 'P' || next_tile == '@' || next_tile == '&' || next_tile == 'W' || next_tile == 'F' || next_tile == 'G' || next_tile == 'S' || next_tile == 'M') {
         if (next_tile == '+') {
             for (int i = 0; i < level->num_rooms; i++) {
                 Room room = level->rooms[i];
@@ -2037,6 +2129,7 @@ void move_player(Game *game, int key) {
                         if (new_pos.y == level->rooms[i].weapons[j].position.y && new_pos.x == level->rooms[i].weapons[j].position.x)
                         {
                             reveal_weapons(&level->rooms[i].weapons[j] , level , game);
+                            add_weapon_to_player(game, &level->rooms[i].weapons[j]);
                         }
                     }
                 }
@@ -2049,7 +2142,7 @@ void move_player(Game *game, int key) {
                     {
                         if (new_pos.y == level->rooms[i].foods[j].position.y && new_pos.x == level->rooms[i].foods[j].position.x)
                         {
-                            reveal_foods(&level->rooms[i].foods[j] , level , game);
+                            reveal_foods(&level->rooms[i].foods[j], &level->rooms[i] , level , game);
                         }
                     }
                 }
@@ -2081,6 +2174,14 @@ void move_player(Game *game, int key) {
                 }
         }
 
+        else if(next_tile == 'M'){
+            Monster *monster = find_monster_at(game, new_pos);
+            if (monster) {
+                handle_battle(game, monster);
+                return;
+            }
+        }
+
         
         
 
@@ -2088,12 +2189,319 @@ void move_player(Game *game, int key) {
     }
 }
 
-void move_monster(Game* game , Monster* monster){
+Monster* find_monster_at(Game *game, Position pos) {
+    Level *level = &game->levels[game->current_level];
+    for (int i = 0; i < level->num_rooms; i++) {
+        Room *room = &level->rooms[i];
+        for (int j = 0; j < room->num_monsters; j++) {
+            if (room->monsters[j].position.x == pos.x && 
+                room->monsters[j].position.y == pos.y) {
+                return &room->monsters[j];
+            }
+        }
+    }
+    return NULL;
+}
+
+void handle_battle(Game *game, Monster *monster) {
+    Level *level = &game->levels[game->current_level];
+    WINDOW *battle_win = newwin(10, 40, LINES/2-5, COLS/2-20);
+    keypad(battle_win, TRUE);
+    
+    while (1) {
+        wclear(battle_win);
+        box(battle_win, 0, 0);
+        mvwprintw(battle_win, 1, 15, "⚔️ BATTLE ⚔️");
+        mvwprintw(battle_win, 3, 2, "Player HP: %d", game->player.hp);
+        mvwprintw(battle_win, 4, 2, "Monster HP: %d", monster->health);
+        mvwprintw(battle_win, 5, 2, "Selected Weapon: %s (Power: %d)", 
+            weapon_type_to_str(game->player.selected_weapon.type),
+            game->player.selected_weapon.attack_power
+        );
+        
+        int ch = wgetch(battle_win);
+        if (ch == ' ') {
+            // Player attack
+            if (check_weapon_ammo(&game->player)) {
+                monster->health -= game->player.selected_weapon.attack_power;
+                reduce_weapon_ammo(&game->player);
+                
+                // Monster counter attack
+                game->player.hp -= monster->damage;
+                
+                if (monster->health <= 0) {
+                    remove_monster(level, monster);
+                    wclear(battle_win);
+                    delwin(battle_win);
+                    return;
+                }
+                
+                if (game->player.hp <= 0) {
+                    game_over(game, 0);
+                    return;
+                }
+            }
+            else{
+                game->game_message = "this weapon is ended.choose another one.";
+            }
+        } else if (ch == 'q') {
+            delwin(battle_win);
+            return;
+        }
+    }
+}
+
+const char* weapon_type_to_str(WeaponType type) {
+    switch(type) {
+        case WEAPON_Mace: return "Mace";
+        case WEAPON_Sword: return "Sword";
+        case WEAPON_Dagger: return "Dagger";
+        case WEAPON_Magic_Wand: return "Magic Wand";
+        case WEAPON_Normal_Arrow: return "Normal Arrow";
+        default: return "Unknown";
+    }
+}
+
+int check_weapon_ammo(Player *player) {
+    switch(player->selected_weapon.type) {
+        case WEAPON_Mace: return 1; // Unlimited
+        case WEAPON_Sword: return (player->num_sword > 0);
+        case WEAPON_Dagger: return (player->num_dagger > 0);
+        case WEAPON_Magic_Wand: return (player->num_magic_wand > 0);
+        case WEAPON_Normal_Arrow: return (player->num_normal_arrow > 0);
+        default: return 0;
+    }
+}
+
+void reduce_weapon_ammo(Player *player) {
+    switch(player->selected_weapon.type) {
+        case WEAPON_Sword: 
+            if(player->num_sword > 0) {
+                player->num_sword--;
+            }
+            if(player->num_sword == 0){
+                for (int i = 0; i < player->num_weapons; i++)
+                {
+                    if (player->weapons[i].type == WEAPON_Sword)
+                    {
+                        for (int j = i; j < player->num_weapons - 1; j++)
+                        {
+                            player->weapons[j] = player->weapons[j+1];
+                        }
+                        player->num_weapons--;
+                        break;
+                    }
+                    
+                }
+                
+            }
+            break;
+        case WEAPON_Dagger: 
+            if(player->num_dagger > 0) {
+                player->num_dagger--;
+            }
+            if(player->num_dagger == 0){
+                for (int i = 0; i < player->num_weapons; i++)
+                {
+                    if (player->weapons[i].type == WEAPON_Dagger)
+                    {
+                        for (int j = i; j < player->num_weapons - 1; j++)
+                        {
+                            player->weapons[j] = player->weapons[j+1];
+                        }
+                        player->num_weapons--;
+                        break;
+                    }
+                    
+                }
+                
+            }
+            break;
+        case WEAPON_Magic_Wand: 
+            if(player->num_magic_wand > 0) {
+                player->num_magic_wand--;
+            }
+            if(player->num_magic_wand == 0){
+                for (int i = 0; i < player->num_weapons; i++)
+                {
+                    if (player->weapons[i].type == WEAPON_Magic_Wand)
+                    {
+                        for (int j = i; j < player->num_weapons - 1; j++)
+                        {
+                            player->weapons[j] = player->weapons[j+1];
+                        }
+                        player->num_weapons--;
+                        break;
+                    }
+                    
+                }
+                
+            }
+            break;
+        case WEAPON_Normal_Arrow: 
+            if(player->num_normal_arrow > 0) {
+                player->num_normal_arrow--;
+            }
+            if(player->num_normal_arrow == 0){
+                for (int i = 0; i < player->num_weapons; i++)
+                {
+                    if (player->weapons[i].type == WEAPON_Normal_Arrow)
+                    {
+                        for (int j = i; j < player->num_weapons - 1; j++)
+                        {
+                            player->weapons[j] = player->weapons[j+1];
+                        }
+                        player->num_weapons--;
+                        break;
+                    }
+                    
+                }
+                
+            }
+            break;
+        default: break;
+    }
+
+    if (!check_weapon_exists(player, player->selected_weapon.type)) {
+        if (player->num_weapons > 0) {
+            player->selected_weapon = player->weapons[0];
+            weapon_menu_visible = 0; // Select the first weapon in the list
+        } 
+        // else {
+        //     // No weapons left, set selected weapon to a default or invalid state
+        //     player->selected_weapon.type = WEAPON_NONE; // Assuming WEAPON_NONE is defined
+        // }
+    }
+}
+
+int check_weapon_exists(Player *player, WeaponType type) {
+    for (int i = 0; i < player->num_weapons; i++) {
+        if (player->weapons[i].type == type) {
+            return 1; // Weapon exists
+        }
+    }
+    return 0; // Weapon does not exist
+}
+
+void remove_monster(Level *level, Monster *monster) {
+    for (int i = 0; i < level->num_rooms; i++) {
+        Room *room = &level->rooms[i];
+        for (int j = 0; j < room->num_monsters; j++) {
+            if (&room->monsters[j] == monster) {
+                // Restore original tile
+                level->map[monster->position.y][monster->position.x] = monster->last_tile;
+                level->drawMap[monster->position.y][monster->position.x] = monster->last_tile;
+                
+                // Remove from array
+                for (int k = j; k < room->num_monsters-1; k++) {
+                    room->monsters[k] = room->monsters[k+1];
+                }
+                room->num_monsters--;
+                return;
+            }
+        }
+    }
+}
+
+void game_over(Game *game, int won) {
+    clear();
+    if (won) {
+        mvprintw(LINES/2, COLS/2-10, "🎉 VICTORY! Score: %d", game->player.gold_collected);
+    } else {
+        mvprintw(LINES/2, COLS/2-10, "💀 GAME OVER! Score: %d", game->player.gold_collected);
+    }
+    mvprintw(LINES/2+2, COLS/2-15, "Press any key to return to menu");
+    sleep(2);
+    refresh();
+    getch();
+    
+    // Disable continue functionality
+    game->current_level = -1;
+    // save_game(game, current_user);
+}
+
+// void move_monster(Game* game , Monster* monster){
+//     Level *level = &game->levels[game->current_level];
+//     Position new_pos = monster->position;
+//     Position player_pos = game->player.position;
+
+//     // انتخاب جهت حرکت به سمت بازیکن
+//     if (player_pos.x > monster->position.x) new_pos.x++;
+//     else if (player_pos.x < monster->position.x) new_pos.x--;
+
+//     else if (player_pos.y > monster->position.y) new_pos.y++;
+//     else if (player_pos.y < monster->position.y) new_pos.y--;
+
+//     char next_tile = level->map[new_pos.y][new_pos.x];
+
+//     // ⛔ بررسی اینکه هیولا نتواند از دیوار عبور کند
+//     if (next_tile == '-' || next_tile == '|' || next_tile == '+' || next_tile == '@' || monster->max_follow_steps == 0) {
+//         return;  // اگر خانه بعدی دیوار یا مانع بود، حرکت نکن
+//     }
+    // if (player_pos.y == new_pos.y && player_pos.x == new_pos.x)
+    // {
+    //     // collision();
+    //     return;
+    // }
+    
+
+//     // ذخیره خانه قبلی در `last_tile`
+//     level->map[monster->position.y][monster->position.x] = monster->last_tile;  // بازگشت به خانه قبلی
+//     level->drawMap[monster->position.y][monster->position.x] = monster->last_tile;  // در drawMap نیز بازگشت خانه قبلی
+
+//     // ذخیره خانه فعلی در `last_tile`
+//     monster->last_tile = next_tile;  // ذخیره خانه جدید برای برگشتن به آن بعد از حرکت
+
+//     // به‌روزرسانی موقعیت هیولا
+//     monster->position = new_pos;
+//     monster->max_follow_steps--;  // کاهش تعداد گام‌های باقی‌مانده برای تعقیب
+
+//     // حرکت هیولا به خانه جدید
+//     level->map[new_pos.y][new_pos.x] = 'M';  // در نقشه
+//     level->drawMap[new_pos.y][new_pos.x] = 'M';
+// }
+
+// void collision(Game* game , Monster* monster){
+//     Position player_pos = game->player.position;
+//     Position monster_pos = monster->position;
+    
+//     // بررسی اینکه آیا هیولا و پلیر روی یک خانه قرار دارند
+//     // if (player_pos.x == monster_pos.x && player_pos.y == monster_pos.y) {
+//         // اگر کلید اسپیس زده شد، کاربر ضربه میزند
+//         int ch = getch();
+//         if (ch == ' ') {
+//             // ضربه با اسلحه، آسیب وارد کردن به هیولا
+
+//             int damage = game->player.selected_weapon.attack_power;
+//             monster->health -= damage;
+
+//             if (monster->health <= 0) {
+//                 // هیولا کشته شده
+//                 monster->is_active = 0; // غیر فعال کردن هیولا
+//                 game->game_message = "You killed the monster!";
+//             } else {
+//                 game->game_message = "You hit the monster!";
+//             }
+//         } else {
+//             // در صورتی که اسپیس زده نشد، هیولا به پلیر ضربه میزند
+//             int damage = monster->damage;
+//             game->player.hp -= damage;
+//             game->game_message = "The monster attacked you!";
+            
+//             if (game->player.hp <= 0) {
+//                 game->game_message = "You have been killed by the monster!";
+//                 // تابع پایان بازی را اینجا فراخوانی کن
+//             }
+//         }
+//     // }
+// }
+
+void move_monster(Game *game, Monster *monster) {
     Level *level = &game->levels[game->current_level];
     Position new_pos = monster->position;
     Position player_pos = game->player.position;
 
-        
+    // Determine the direction the monster should move toward the player
     if (player_pos.x > monster->position.x) new_pos.x++;
     else if (player_pos.x < monster->position.x) new_pos.x--;
 
@@ -2102,20 +2510,47 @@ void move_monster(Game* game , Monster* monster){
 
     char next_tile = level->map[new_pos.y][new_pos.x];
 
-
-    if (next_tile == '-' || next_tile == '|' || next_tile == '+' || next_tile == '@') {
-        return;  
+    // If the next tile is a wall, door, or something the monster can't pass, don't move
+    if (next_tile == '-' || next_tile == '|' || next_tile == '+' || next_tile == '@' || next_tile == 'M' ||monster->max_follow_steps == 0) {
+        return;
     }
 
-        
+    if (player_pos.y == new_pos.y && player_pos.x == new_pos.x)
+    {
+        // collision();
+        return;
+    }
+
+    // Before moving, restore the last tile the monster was on
+
+    
     level->map[monster->position.y][monster->position.x] = monster->last_tile;
-    level->drawMap[monster->position.y][monster->position.x] = monster->last_tile; 
+    if (monster->last_tile == 'T')
+    {
+        level->drawMap[monster->position.y][monster->position.x] = '.';
+    }
+    else{
+        level->drawMap[monster->position.y][monster->position.x] = monster->last_tile;
+    }
+
+    // Update the monster's last tile with the current tile
     
     monster->last_tile = next_tile;
     monster->position = new_pos;
+    monster->max_follow_steps--;
+
+    // If the next tile is not food/gold, we replace it with the monster symbol ('M')
+    // if (next_tile != 'F' && next_tile != 'G') {
+    //     level->map[new_pos.y][new_pos.x] = 'M';
+    //     level->drawMap[new_pos.y][new_pos.x] = 'M';
+    // }
     level->map[new_pos.y][new_pos.x] = 'M';
-    level->drawMap[monster->position.y][monster->position.x] = 'M';
+    level->drawMap[new_pos.y][new_pos.x] = 'M';
 }
+
+// void collison(){
+
+// }
 
 void move_monsters(Game* game){
     Level* level = &game->levels[game->current_level];
@@ -2126,7 +2561,7 @@ void move_monsters(Game* game){
         for (int j = 0; j < room->num_monsters; j++)
         {
             Monster *monster = &room->monsters[j];
-            if (monster->is_active)
+            if (monster->is_active == 1)
             {
                 move_monster(game ,monster);
             }
@@ -2299,56 +2734,211 @@ void draw_spell_menu(Game *game) {
 }
 
 void draw_weapon_menu(Game *game) {
-    if (!weapon_menu_visible) return;
+    // if (!weapon_menu_visible) return;
 
     int start_x = COLS - 36; 
     int start_y = 35; 
     int width = 30;
     int height = 10;
-
-    WINDOW *weapon_win = newwin(height, width, start_y, start_x);
-    box(weapon_win, 0, 0);
-    mvwprintw(weapon_win, 1, 10, "🗡 Weapons 🏹");
+    int choice = weapon_menu_visible;
 
 
-    for (int i = 0; i < 5; i++) {
-        // Room *room = &game->levels[game->current_level].rooms[i];
+    // WINDOW *weapon_win = newwin(height, width, start_y, start_x);
+    // box(weapon_win, 0, 0);
+    // mvwprintw(weapon_win, 1, 10, "🏹 Weapons 🏹");
+
+    // for (int i = 0; i < 5; i++) {
+    //     // Room *room = &game->levels[game->current_level].rooms[i];
+    //         char *weapon_icon;
+    //         int weapon_count;
+    //         int weapon_power;
+    //         switch (i) {
+    //             case 0: {
+    //                 weapon_icon = "⚒ Mace";
+    //                 weapon_count = game->player.num_mace;
+    //                 weapon_power = 5;
+    //                 break;
+    //             }
+    //             case 1: {
+    //                 weapon_icon = "⚔️ Sword";
+    //                 weapon_count = game->player.num_sword;
+    //                 weapon_power = 10;
+    //                 break;
+    //                 }
+    //             case 2: {
+    //                 weapon_icon = "➳ Normal Arrow"; 
+    //                 weapon_count = game->player.num_normal_arrow;
+    //                 weapon_power = 5;
+    //                 break;
+    //             }
+    //             case 3: {
+    //                 weapon_icon = "🪄 Magic Wand"; 
+    //                 weapon_count = game->player.num_magic_wand;
+    //                 weapon_power = 15;
+    //                 break;
+    //             }
+    //             case 4: {
+    //                 weapon_icon = "🗡️ Dagger";
+    //                 weapon_count = game->player.num_dagger;
+    //                 weapon_power = 12;
+    //                 break;
+    //             }
+    //             default: weapon_icon = "?"; break;
+    //         }
+            
+    //         // if(game->player.selected_weapon.type == i){
+    //         //     wattron(weapon_win,A_REVERSE);
+    //         //     mvwprintw(weapon_win, i + 3, 2, "%s %d %d", weapon_icon , weapon_count , weapon_power);
+    //         //     wattroff(weapon_win,A_REVERSE);
+    //         // }
+    //         // else{
+    //             mvwprintw(weapon_win, i + 3, 2, "%s %d %d", weapon_icon , weapon_count , weapon_power);
+    //         // }
+        
+    // }
+
+
+
+    // while(1){
+
+    //     WINDOW *weapon_win = newwin(height, width, start_y, start_x);
+    //     box(weapon_win, 0, 0);
+    //     mvwprintw(weapon_win, 1, 10, "🏹 Weapons 🏹");
+    //     wrefresh(weapon_win);
+    //     for (int i = 0; i < 5; i++) {
+    //         // Room *room = &game->levels[game->current_level].rooms[i];
+    //         char *weapon_icon;
+    //         int weapon_count;
+    //         int weapon_power;
+    //         switch (i) {
+    //             case 0: {
+    //                 weapon_icon = "⚒ Mace";
+    //                 weapon_count = game->player.num_mace;
+    //                 weapon_power = 5;
+    //                 break;
+    //             }
+    //             case 1: {
+    //                 weapon_icon = "⚔️ Sword";
+    //                 weapon_count = game->player.num_sword;
+    //                 weapon_power = 10;
+    //                 break;
+    //                 }
+    //             case 2: {
+    //                 weapon_icon = "➳ Normal Arrow"; 
+    //                 weapon_count = game->player.num_normal_arrow;
+    //                 weapon_power = 5;
+    //                 break;
+    //             }
+    //             case 3: {
+    //                 weapon_icon = "🪄 Magic Wand"; 
+    //                 weapon_count = game->player.num_magic_wand;
+    //                 weapon_power = 15;
+    //                 break;
+    //             }
+    //             case 4: {
+    //                 weapon_icon = "🗡️ Dagger";
+    //                 weapon_count = game->player.num_dagger;
+    //                 weapon_power = 12;
+    //                 break;
+    //             }
+    //             default: weapon_icon = "?"; break;
+    //         }
+            
+    //         // if(game->player.selected_weapon.type == i){
+    //         //     wattron(weapon_win,A_REVERSE);
+    //         //     mvwprintw(weapon_win, i + 3, 2, "%s %d %d", weapon_icon , weapon_count , weapon_power);
+    //         //     wattroff(weapon_win,A_REVERSE);
+    //         // }
+    //         // else{
+    //         if(choice == i){
+    //             wattron(weapon_win,A_REVERSE);
+    //         }
+    //         else{
+    //             wattroff(weapon_win, A_REVERSE);
+    //         }
+    //         mvwprintw(weapon_win, i + 3, 2, "%s %d %d", weapon_icon , weapon_count , weapon_power);
+    //         wrefresh(weapon_win);
+    //         refresh();
+    //         delwin(weapon_win);
+    //         // }
+        
+    //     }
+
+
+    //     int ch = getch();
+    //     if (ch == KEY_UP)
+    //         choice = (choice == 0) ? 1 : choice - 1;
+    //     else if (ch == KEY_DOWN)
+    //         choice = (choice == 4) ? 0 : choice + 1;
+    //     else if (ch == 10){
+    //         game->game_message = "you selected";
+    //         break;
+    //     }
+    // }
+
+    // game->player.selected_weapon = game->player.weapons[choice];
+
+    while (1) {
+        WINDOW *weapon_win = newwin(height, width, start_y, start_x);
+        box(weapon_win, 0, 0);
+        mvwprintw(weapon_win, 1, 10, "🏹 Weapons 🏹");
+        wrefresh(weapon_win);
+
+        // نمایش لیست سلاح‌ها
+        for (int i = 0; i < game->player.num_weapons; i++) {
             char *weapon_icon;
             int weapon_count;
-
-            switch (i) {
-                case 0: {
-                    weapon_icon = "⚔️ Sword";
-                    weapon_count = game->player.num_sword;
-                    break;
-                }
-                case 1: {
-                    weapon_icon = "🪓 Axe";
-                    weapon_count = game->player.num_mace;
-                    break;
-                    }
-                case 2: {
-                    weapon_icon = "🏹 Bow"; 
-                    weapon_count = game->player.num_normal_arrow;
-                    break;
-                }
-                case 3: {
-                    weapon_icon = "🪄 Staff"; 
-                    weapon_count = game->player.num_magic_wand;
-                    break;
-                }
-                case 4: {
-                    weapon_icon = "🗡️ Dagger";
-                    weapon_count = game->player.num_dagger;
-                    break;
-                }
-                default: weapon_icon = "?"; break;
+            switch (game->player.weapons[i].type)
+            {
+            case WEAPON_Mace:
+                weapon_icon = "⚒ Mace";
+                weapon_count = game->player.num_mace;
+                break;
+            case WEAPON_Sword:
+                weapon_icon = "⚔️ Sword";
+                weapon_count = game->player.num_sword;
+                break;
+            case WEAPON_Dagger:
+                weapon_icon = "🗡️ Dagger";
+                weapon_count = game->player.num_dagger;
+                break;
+            case WEAPON_Normal_Arrow:
+                weapon_icon = "➳ Normal Arrow";
+                weapon_count = game->player.num_normal_arrow;
+                break;
+            case WEAPON_Magic_Wand:
+                weapon_icon = "🪄 Magic Wand";
+                weapon_count = game->player.num_magic_wand;
+                break;
             }
-            mvwprintw(weapon_win, i + 3, 2, "%s %d", weapon_icon , weapon_count);
-        
+            int weapon_power = game->player.weapons[i].attack_power;
+
+            if (choice == i) {
+                wattron(weapon_win, A_REVERSE); // رنگ پس‌زمینه برای گزینه انتخاب شده
+            } else {
+                wattroff(weapon_win, A_REVERSE);
+            }
+
+            mvwprintw(weapon_win, i + 3, 2, "%s %d %d", weapon_icon, weapon_count, weapon_power);
+            wrefresh(weapon_win);
+        }
+
+        int ch = getch();
+        if (ch == KEY_UP)
+            choice = (choice == 0) ? game->player.num_weapons - 1 : choice - 1;
+        else if (ch == KEY_DOWN)
+            choice = (choice == game->player.num_weapons - 1) ? 0 : choice + 1;
+        else if (ch == 10) { // Enter key
+            weapon_menu_visible = choice;
+            game->player.selected_weapon = game->player.weapons[choice];
+            game->game_message = "You selected a weapon!";
+            break; // منو بسته می‌شود
+        }
+
+        delwin(weapon_win);
     }
 
-    wrefresh(weapon_win);
+
 }
 
 
@@ -2389,8 +2979,8 @@ void draw_weapon(Weapon *weapon , int start_x , int start_y) {
 void draw_food(Food *food , int start_x , int start_y) {
     char *food_icon;
     switch (food->type) {
-        case FOOD_Apple:  food_icon = "🍍"; break;
-        case FOOD_Egg:   food_icon = "🥚"; break;
+        case FOOD_Apple:  food_icon = ":"; break;
+        case FOOD_Egg:   food_icon = "'"; break;
         case FOOD_Bread:  food_icon = "🥜"; break;
         case FOOD_Carot: food_icon = "🥕"; break;
         case FOOD_Fish:   food_icon = "🍦"; break;
@@ -2408,7 +2998,20 @@ void draw_spell(Spell *spell , int start_x , int start_y) {
     mvprintw(spell->position.y + start_y, spell->position.x + start_x, "🔮");
 }
 
-void draw_monster(Monster* monster , int start_x , int start_y){
+// void draw_monster(Monster* monster , int start_x , int start_y){
+//     char *monster_icon;
+//     switch (monster->type) {
+//         case Deaⅿon:  monster_icon = "D"; break;
+//         case Dragon:   monster_icon = "F"; break;
+//         case Giant:    monster_icon = "G"; break;
+//         case Snake:    monster_icon = "S"; break;
+//         case Undead:   monster_icon = "U"; break;
+//         default:       monster_icon = "?"; break;
+//     }
+//     mvprintw(monster->position.y + start_y, monster->position.x + start_x, "%s", monster_icon);
+// }
+
+void draw_monster(Monster *monster, int start_x, int start_y) {
     char *monster_icon;
     switch (monster->type) {
         case Deaⅿon:  monster_icon = "D"; break;
@@ -2451,6 +3054,11 @@ void draw_map(Level *level) {
         for (int x = 0; x < level->width; x++) {
             char tile = level->drawMap[y][x];
 
+            if (tile == 'G' || tile == 'W' || tile == 'M' || tile == '@' || tile == 'F' || tile == 'S')
+            {
+                continue;
+            }
+            
             int found_room = 0; 
 
             
@@ -2615,7 +3223,7 @@ void draw_game(Game *game) {
     // mvprintw(level->height + 4, start_x, "Player HP: %d", game->player.hp);
     // mvprintw(level->height + 5, start_x, "Time Remaining: %02d:%02d", game->timer.minute, game->timer.second);
 
-    draw_weapon_menu(game);
+    // draw_weapon_menu(game);
     draw_food_menu(game); 
     draw_spell_menu(game);
 
