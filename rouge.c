@@ -21,7 +21,12 @@
 
 #define CUSTOM_ORANGE 10
 #define CUSTOM_PINK 11
+#define MAX_SCORES 100
+#define ENTRIES_PER_PAGE 10
 // #define start_x 
+#define MAX_HUNGER 100
+#define HUNGER_DECREASE_INTERVAL 30
+#define HUNGER_DAMAGE 5
 
 int weapon_menu_visible = 0;
 int food_menu_visible = 0;
@@ -56,18 +61,26 @@ typedef struct
 
 }Trap;
 
+// typedef enum {
+//     FOOD_Apple,  
+//     FOOD_Egg,   
+//     // FOOD_Bread,  
+//     // FOOD_Carot, 
+//     // FOOD_Fish   
+// } FoodType;
 typedef enum {
-    FOOD_Apple,  
-    FOOD_Egg,   
-    FOOD_Bread,  
-    FOOD_Carot, 
-    FOOD_Fish   
+    FOOD_NORMAL, 
+    // FOOD_PREMIU
+    // FOOD_MAGIC
+    FOOD_SPOILED  
 } FoodType;
+
 
 typedef struct {
     Position position;
     FoodType type;
-    int hp_restore; 
+    int hp_restore;
+    int decay_time;  
 } Food;
 
 typedef enum {
@@ -100,7 +113,7 @@ typedef struct {
 typedef struct {
     Position position;
     SpellType type;
-    int effect_type;   
+    int hp_restore;
     int duration;      
 } Spell;
 
@@ -111,6 +124,13 @@ typedef enum {
     // ROOM_TRAP,
     // ROOM_BOSS
 } RoomType;
+
+const char* ROOM_MUSIC_PATHS[] = {
+    [ROOM_NORMAL] = "Musics/Butcher_mp3.mp3",
+    [ROOM_GOLD]   = "Musics/Best_Shot_mp3.mp3",
+    [ROOM_SPELL]  = "Musics/Halloween_Party_Night_mp3.mp3",
+    [3] = "Musics/crysis-2-_epilogue_main_theme.mp3"
+};
 
 typedef enum {
     Deaⅿon,
@@ -160,7 +180,7 @@ typedef struct {
     int num_monsters;
     Monster* monsters;
     // char music_path[100];
-    char *music_path;
+    // char *music_path;
 } Room;
 
 typedef struct {
@@ -185,19 +205,21 @@ typedef struct {
     int num_magic_wand;
     int num_dagger;
     int num_weapons;
-    int hungry;
+    // int hungry;
     int num_health_spell;
     int num_speed_spell;
     int num_damage_spell;
-    int num_apple;
-    int num_egg;
-    int num_fish;
-    int num_bread;
-    int num_carrot;
+    int num_normal_food;
+    int num_spoiled_food;
+    // int num_fish;
+    // int num_bread;
+    // int num_carrot;
     int gold_collected;
     int color;
     Weapon* weapons;
     Weapon selected_weapon;
+    int score;
+    time_t last_hunger_update;
 } Player;
 
 typedef struct {
@@ -235,6 +257,14 @@ typedef struct {
 } GameSettings;
 
 typedef struct {
+    char name[50];
+    int score;
+    int gold;
+    int games_played;
+} ScoreEntry;
+
+
+typedef struct {
     Player player;
     Level *levels;
     int total_levels;
@@ -251,7 +281,15 @@ typedef struct {
 } ThreadArgs;
 
 User curent_user;
+int Final_level = 0;
+GameSettings settings;
+int speed2x = 0;
+int damage2x = 0;
 
+int speed_counter = 10;
+int damage_counter = 10;
+// int end_game = 0;
+// int game_victory = 0;
 
 
 void firstMenu();
@@ -265,14 +303,9 @@ int validate_email();
 int checkSignUp();
 int checkLogIn();
 void gameMenu(User user , GameSettings* settings);
-// void init_music();
-// void *music_thread();
-// void play_music();
-// void stop_music();
-// void set_music_volume();
 WINDOW* create_button();
 
-// Function Prototypes
+
 char **create_map(int width, int height);
 void free_map(char **map, int height);
 Room create_room(int y, int x, int width, int height);
@@ -290,9 +323,10 @@ void connect_rooms_with_bfs(Room *rooms, int num_rooms, char **map, int width, i
 void reveal_corridor(Position start, char **map, char **draw_map);
 void next_level(Game* game);
 void init_game(int n, User user, GameSettings *settings);
+void pause_menu(Game *game , User user);
 void load_game(Game* game , User user);
 void save_game(Game *game, User user);
-void init_game_timer(GameTimer *timer);
+void init_game_timer(GameTimer *timer , Game* game);
 void *game_timer_thread(void *arg);
 int create_window(int start_y, int start_x, int height, int width, int max_length, char *input, int pass);
 int open_pass_door(Room* room , Game* game);
@@ -332,20 +366,10 @@ void reduce_weapon_ammo(Player *player);
 void remove_monster(Level *level, Monster *monster);
 void game_over(Game *game, int won);
 int check_weapon_exists(Player *player, WeaponType type);
-// void free_level(Level *level);
-// void connect_rooms_with_mst(Room *rooms, int num_rooms, char **map, int width, int height, Corridor **corridors, int *num_corridors);
-// void connect_rooms(Room *rooms, int num_rooms, char **map, Corridor **corridors, int *num_corridors);
+void draw_scoreboard(User user , GameSettings* settings);
+void save_score(const char* username, int score, int gold);
+void update_hunger(Player *player);
 
-// typedef struct
-// {
-//     Music music;
-//     int gameLevel;
-//     Level* levels;
-//     int level;
-    
-
-
-// }Game;
 
 
 int main(){
@@ -375,20 +399,10 @@ int main(){
     endwin();
 }
 
-// void creat_color(){
-
-// }
 
 void firstMenu(){
     
-
-    // attron(COLOR_PAIR(2));
-    // attron(A_REVERSE);
-    // mvprintw(LINES/2 , COLS/2 , "SignUp Menu");
-    // attroff(A_REVERSE);
-    // mvprintw(LINES/2 + 5 , COLS/2 , "LogIn Menu");
-    // attroff(COLOR_PAIR(2));
-    char *choices[] = {"SignUp Menu" , "LogIn Menu"};
+    char *choices[] = {"SignUp Menu" , "LogIn Menu", "Guest Login"};
     int choice = 0;
 
 
@@ -396,7 +410,7 @@ void firstMenu(){
     {
         // clear();
         draw_border();
-        for (int i = 0; i < 2; ++i)
+        for (int i = 0; i < 3; ++i)
         {
             WINDOW* button = newwin(3 , 25, LINES/2 - 6 + 4*i, COLS/2 - 12);
             box(button , 0 , 0);
@@ -415,9 +429,9 @@ void firstMenu(){
 
         int ch = getch();
         if (ch == KEY_UP)
-            choice = (choice == 0) ? 1 : choice - 1;
+            choice = (choice == 0) ? 2 : choice - 1;
         else if (ch == KEY_DOWN)
-            choice = (choice == 1) ? 0 : choice + 1;
+            choice = (choice == 2) ? 0 : choice + 1;
         else if (ch == 10){
             break;
         }
@@ -427,11 +441,23 @@ void firstMenu(){
         clear(); 
         refresh(); 
         logIn_menu();
-    }    
-    else{
+    }
+
+    else if (choice == 0){
         clear(); 
         refresh();
         signUp_menu();
+    }
+
+    else{
+        clear(); 
+        refresh();
+        User user;
+        strcpy(user.user_name, "guest");
+        strcpy(user.password, "guest");
+        settings.difficulty = 0;
+        settings.player_color = 0;
+        gameMenu(user , &settings);
     }     
 }
 
@@ -453,7 +479,7 @@ void signUp_menu() {
     refresh();
 
     
-    mvprintw(LINES / 2 - 2, COLS / 2 - 15, "Sign Up Menu");
+    mvprintw(LINES / 2 - 2, COLS / 2 - 5, "Sign Up Menu");
     mvprintw(LINES / 2, COLS / 2 - 15, "Enter your username:");
     mvprintw(LINES / 2 + 4, COLS / 2 - 15, "Enter your password:");
     mvprintw(LINES / 2 + 8, COLS / 2 - 15, "Enter your email:");
@@ -585,7 +611,7 @@ void logIn_menu() {
     refresh();
 
     
-    mvprintw(LINES / 2 - 2, COLS / 2 - 15, "Login Menu");
+    mvprintw(LINES / 2 - 2, COLS / 2 - 5, "Login Menu");
     mvprintw(LINES / 2, COLS / 2 - 15, "Enter your username:");
     mvprintw(LINES / 2 + 4, COLS / 2 - 15, "Enter your password:");
     refresh();
@@ -656,7 +682,8 @@ void logIn_menu() {
         refresh();
         sleep(2);
         clear();
-        GameSettings settings = {0, 0};
+        settings.difficulty = 0;
+        settings.player_color = 0;
         gameMenu(user , &settings);
     } else {
         mvprintw(LINES / 2 - 8, COLS / 2 - 15, "Invalid credentials! Please try signing up.");
@@ -667,8 +694,123 @@ void logIn_menu() {
     }
 }
 
+int compare_scores(const void *a, const void *b) {
+    return ((ScoreEntry *)b)->score - ((ScoreEntry *)a)->score;
+}
+
+
+
+
+
+void draw_scoreboard(User user , GameSettings* settings) {
+    FILE *file = fopen("scoreboard.dat", "rb");
+    if (!file) {
+        mvprintw(LINES / 2, COLS / 2 - 10, "No scores available.");
+        refresh();
+        getch();
+        return;
+    }
+
+    ScoreEntry scores[MAX_SCORES];
+    int num_scores = fread(scores, sizeof(ScoreEntry), MAX_SCORES, file);
+    fclose(file);
+
+    // مرتب‌سازی امتیازات از بیشترین به کمترین
+    qsort(scores, num_scores, sizeof(ScoreEntry), compare_scores);
+
+    int start_idx = 0;
+    int current_selection = 0;
+    int max_pages = (num_scores / ENTRIES_PER_PAGE) + (num_scores % ENTRIES_PER_PAGE != 0);
+
+    clear();
+    WINDOW *score_pad = newpad(num_scores + 10, 50);
+    
+    while (1) {
+        werase(score_pad);
+        box(score_pad, 0, 0);
+        mvwprintw(score_pad, 1, 15, "🏆 SCOREBOARD 🏆");
+        mvwprintw(score_pad, 2, 10, "────────────────────────");
+
+        for (int i = start_idx; i < start_idx + ENTRIES_PER_PAGE && i < num_scores; i++) {
+            int display_row = i - start_idx + 4;
+            if (i == 0) wattron(score_pad, COLOR_PAIR(2)); // طلایی برای نفر اول
+            if (i == 1) wattron(score_pad, COLOR_PAIR(3)); // نقره‌ای برای نفر دوم
+            if (i == 2) wattron(score_pad, COLOR_PAIR(4)); // برنزی برای نفر سوم
+            if (strcmp(scores[i].name, user.user_name) == 0) wattron(score_pad, A_BOLD); // هایلایت کاربر فعلی
+
+            char *trophy = "";
+            if (i == 0) trophy = "🏆";
+            else if (i == 1) trophy = "🥈";
+            else if (i == 2) trophy = "🥉";
+
+            mvwprintw(score_pad, display_row, 2, "%s #%d %-10s %4d pts | Gold: %d | Games: %d",
+                      trophy, i + 1, scores[i].name, scores[i].score, scores[i].gold, scores[i].games_played);
+
+            wattroff(score_pad, COLOR_PAIR(2));
+            wattroff(score_pad, COLOR_PAIR(3));
+            wattroff(score_pad, COLOR_PAIR(4));
+            wattroff(score_pad, A_BOLD);
+        }
+
+        mvwprintw(score_pad, 15, 10, "[↑↓] Scroll | [←→] Page | [Q] Quit");
+
+        int start_y = (LINES - 20) / 2;
+        int start_x = (COLS - 50) / 2;
+
+        prefresh(score_pad, 0, 0, start_y, start_x, start_y + 15, start_x + 50);
+
+        int ch = getch();
+        if (ch == 'q') break;
+        else if (ch == KEY_UP && start_idx > 0) start_idx--;
+        else if (ch == KEY_DOWN && start_idx + ENTRIES_PER_PAGE < num_scores) start_idx++;
+        else if (ch == KEY_RIGHT && (start_idx / ENTRIES_PER_PAGE) < max_pages - 1) start_idx += ENTRIES_PER_PAGE;
+        else if (ch == KEY_LEFT && start_idx >= ENTRIES_PER_PAGE) start_idx -= ENTRIES_PER_PAGE;
+    }
+
+    delwin(score_pad);
+    gameMenu(user , settings);
+}
+
+void save_score(const char* username, int score, int gold) {
+    FILE *file = fopen("scoreboard.dat", "rb+");
+    ScoreEntry scores[MAX_SCORES];
+    int num_scores = 0;
+
+    if (file) {
+        num_scores = fread(scores, sizeof(ScoreEntry), MAX_SCORES, file);
+        fclose(file);
+    }
+
+    int found = 0;
+    for (int i = 0; i < num_scores; i++) {
+        if (strcmp(scores[i].name, username) == 0) {
+            scores[i].games_played ++;
+            scores[i].score += score;  // بیشترین امتیاز را ذخیره کن
+            scores[i].gold += gold;
+            // scores[i].experience += experience;
+            found = 1;
+            break;
+        }
+    }
+
+    if (!found && num_scores < MAX_SCORES) {
+        strcpy(scores[num_scores].name, username);
+        scores[num_scores].score = score;
+        scores[num_scores].gold = gold;
+        scores[num_scores].games_played = 1;
+        // scores[num_scores].experience = experience;
+        num_scores++;
+    }
+
+    file = fopen("scoreboard.dat", "wb");
+    fwrite(scores, sizeof(ScoreEntry), num_scores, file);
+    fclose(file);
+}
+
 void gameMenu(User user , GameSettings* settings){
 
+    // end_game = 0;
+    // game_victory = 0;
     clear();
     refresh();
     draw_border();
@@ -723,7 +865,7 @@ void gameMenu(User user , GameSettings* settings){
         init_game(1 , user , settings);
     }
     else if(choice == 2){
-        
+        draw_scoreboard(user , settings);
     }
     else if(choice == 3){
         setting_menu(settings , user);
@@ -823,328 +965,295 @@ void setting_menu(GameSettings *settings , User user) {
 }
 
 void save_game(Game *game, User user) {
-    FILE *file = fopen("save_game.dat", "wb");
+    char file_path[100];
+    sprintf(file_path, "%s/save.dat", user.user_name);
+    FILE *file = fopen(file_path, "wb");
     if (!file) {
-        printf("Failed to open save file for writing.\n");
+        perror("Error opening file for saving");
         return;
     }
 
     
-    fwrite(&game->current_level, sizeof(int), 1, file);
+    // Save Player (بدون weapons و selected_weapon)
     fwrite(&game->player.position, sizeof(Position), 1, file);
     fwrite(&game->player.hp, sizeof(int), 1, file);
-    fwrite(&game->player.gold_collected, sizeof(int), 1, file);
-    fwrite(&game->player.num_dagger, sizeof(int), 1, file);
-    fwrite(&game->player.num_mace, sizeof(int), 1, file);
     fwrite(&game->player.num_sword, sizeof(int), 1, file);
-    fwrite(&game->player.num_magic_wand, sizeof(int), 1, file);
+    fwrite(&game->player.num_mace, sizeof(int), 1, file);
     fwrite(&game->player.num_normal_arrow, sizeof(int), 1, file);
-    fwrite(&game->player.num_damage_spell, sizeof(int), 1, file);
+    fwrite(&game->player.num_magic_wand, sizeof(int), 1, file);
+    fwrite(&game->player.num_dagger, sizeof(int), 1, file);
+    fwrite(&game->player.num_weapons, sizeof(int), 1, file);
     fwrite(&game->player.num_health_spell, sizeof(int), 1, file);
     fwrite(&game->player.num_speed_spell, sizeof(int), 1, file);
-    fwrite(&game->player.num_apple, sizeof(int), 1, file);
-    fwrite(&game->player.num_bread, sizeof(int), 1, file);
-    fwrite(&game->player.num_carrot, sizeof(int), 1, file);
-    fwrite(&game->player.num_fish, sizeof(int), 1, file);
-    fwrite(&game->player.num_egg, sizeof(int), 1, file);
+    fwrite(&game->player.num_damage_spell, sizeof(int), 1, file);
+    fwrite(&game->player.num_normal_food, sizeof(int), 1, file);
+    fwrite(&game->player.num_spoiled_food, sizeof(int), 1, file);
+    // fwrite(&game->player.num_fish, sizeof(int), 1, file);
+    // fwrite(&game->player.num_bread, sizeof(int), 1, file);
+    // fwrite(&game->player.num_carrot, sizeof(int), 1, file);
+    fwrite(&game->player.gold_collected, sizeof(int), 1, file);
+    fwrite(&game->player.color, sizeof(int), 1, file);
+    fwrite(&game->player.score, sizeof(int), 1, file);
+    // fwrite(&game->player.hungry, sizeof(int), 1, file);
+    // fwrite(&game->player.last_hunger_update, sizeof(time_t), 1, file);
+
+
+    // Save Weapons
+    fwrite(game->player.weapons, sizeof(Weapon), game->player.num_weapons, file);
+
+    // Save Selected Weapon
     fwrite(&game->player.selected_weapon, sizeof(Weapon), 1, file);
-    fwrite(&game->music, sizeof(Music), 1, file);
+
+
+    fwrite(&game->total_levels, sizeof(int), 1, file);
+    fwrite(&game->current_level, sizeof(int), 1, file);
     fwrite(&game->difficulty, sizeof(int), 1, file);
     fwrite(&game->player.color, sizeof(int), 1, file);
+    // fwrite(&game->game_message, sizeof(char) , 50 , file);
 
-    
-    for (int i = 0; i < game->current_level; i++) {
+
+    for (int i = 0; i <= game->current_level; i++) {
         Level *level = &game->levels[i];
-
         
+        // Save Level Metadata
         fwrite(&level->width, sizeof(int), 1, file);
         fwrite(&level->height, sizeof(int), 1, file);
         fwrite(&level->num_rooms, sizeof(int), 1, file);
         fwrite(&level->num_corridors, sizeof(int), 1, file);
 
-        
-        for (int j = 0; j < level->height; j++) {
-            fwrite(level->map[j], sizeof(char), level->width, file);
-            fwrite(level->drawMap[j], sizeof(char), level->width, file);
+        // Save Map
+        for(int y = 0; y < level->height; y++) {
+            fwrite(level->map[y], sizeof(char), level->width, file);
         }
 
-        
+        // Save DrawMap
+        for(int y = 0; y < level->height; y++) {
+            fwrite(level->drawMap[y], sizeof(char), level->width, file);
+        }
+
+        // Save Corridors
+        fwrite(level->corridors, sizeof(Corridor), level->num_corridors, file);
+
+
+        // Save Rooms
         for (int j = 0; j < level->num_rooms; j++) {
             Room *room = &level->rooms[j];
+            
+            // Save Room Metadata
             fwrite(&room->position, sizeof(Position), 1, file);
-            fwrite(&room->type, sizeof(int), 1, file);
+            fwrite(&room->width, sizeof(int), 1, file);
+            fwrite(&room->height, sizeof(int), 1, file);
+            fwrite(&room->type, sizeof(RoomType), 1, file);
             fwrite(&room->num_doors, sizeof(int), 1, file);
-            fwrite(&room->num_objects, sizeof(int), 1, file);
+            fwrite(&room->num_traps, sizeof(int), 1, file);
             fwrite(&room->num_foods, sizeof(int), 1, file);
-            fwrite(&room->num_golds, sizeof(int), 1, file);
             fwrite(&room->num_weapons, sizeof(int), 1, file);
             fwrite(&room->num_spells, sizeof(int), 1, file);
+            fwrite(&room->num_golds, sizeof(int), 1, file);
             fwrite(&room->num_monsters, sizeof(int), 1, file);
+            fwrite(&room->num_pass_door, sizeof(int), 1, file);
+            fwrite(&room->num_objects, sizeof(int), 1, file);
+            // fwrite(room->music_path , sizeof(char) , 100, file);
+            // size_t music_path_len = strlen(room->music_path) + 1;
+            // fwrite(&music_path_len, sizeof(size_t), 1, file);
+            // fwrite(room->music_path, sizeof(char), music_path_len, file);
 
-            
-            for (int k = 0; k < room->num_doors; k++) {
-                fwrite(&room->doors[k], sizeof(Door), 1, file);
-            }
 
+            // Save Doors
+            fwrite(room->doors, sizeof(Door), room->num_doors, file);
             
-            for (int k = 0; k < room->num_objects; k++) {
-                fwrite(&room->object[k], sizeof(Position), 1, file);
-            }
+            // Save Pass Door
+            fwrite(&room->pass_door, sizeof(Door), 1, file);
+            fwrite(&room->pass_key, sizeof(Position), 1, file);
 
-            
-            for (int k = 0; k < room->num_foods; k++) {
-                fwrite(&room->foods[k], sizeof(Food), 1, file);
-            }
+            // Save Traps
+            fwrite(room->traps, sizeof(Trap), room->num_traps, file);
 
-            
-            for (int k = 0; k < room->num_golds; k++) {
-                fwrite(&room->golds[k], sizeof(Gold), 1, file);
-            }
+            // Save Foods
+            fwrite(room->foods, sizeof(Food), room->num_foods, file);
 
-            
-            for (int k = 0; k < room->num_weapons; k++) {
-                fwrite(&room->weapons[k], sizeof(Weapon), 1, file);
-            }
+            // Save Weapons
+            fwrite(room->weapons, sizeof(Weapon), room->num_weapons, file);
 
-            
-            for (int k = 0; k < room->num_spells; k++) {
-                fwrite(&room->spells[k], sizeof(Spell), 1, file);
-            }
+            // Save Spells
+            fwrite(room->spells, sizeof(Spell), room->num_spells, file);
 
-            
-            for (int k = 0; k < room->num_monsters; k++) {
-                fwrite(&room->monsters[k], sizeof(Monster), 1, file);
-            }
+            // Save Golds
+            fwrite(room->golds, sizeof(Gold), room->num_golds, file);
+
+            // Save Monsters
+            fwrite(room->monsters, sizeof(Monster), room->num_monsters, file);
+
+            fwrite(room->object, sizeof(Position), room->num_objects, file);
+
         }
-
-        fwrite(level->corridors, sizeof(Corridor), level->num_corridors, file);
     }
 
     fclose(file);
     printf("Game saved successfully.\n");
 }
 
-
-// void save_game(Game *game, User user) {
-//     char file_path[100];
-//     sprintf(file_path , "%s/save.dat" , user.user_name);
-//     FILE *file = fopen(file_path, "wb");
-//     if (!file) {
-//         perror("Error opening file for saving");
-//         return;
-//     }
-
-//     // Save basic game information
-//     fwrite(&game->player, sizeof(Player), 1, file);
-//     fwrite(&game->total_levels, sizeof(int), 1, file);
-//     fwrite(&game->current_level, sizeof(int), 1, file);
-
-//     // Save levels
-//     for (int i = 0; i <= game->current_level; i++) {
-//         Level *level = &game->levels[i];
-//         fwrite(&level->width, sizeof(int), 1, file);
-//         fwrite(&level->height, sizeof(int), 1, file);
-//         fwrite(&level->num_rooms, sizeof(int), 1, file);
-        // fwrite(&level->num_corridors, sizeof(int), 1, file);
-
-//         // Save map
-//         for (int y = 0; y < level->height; y++) {
-//             fwrite(level->map[y], sizeof(char), level->width, file);
-//         }
-
-//         for (int x = 0; x < level->height; x++) {
-//             fwrite(level->drawMap[x], sizeof(char), level->width, file);
-//         }
-
-//         // Save rooms
-//         for (int j = 0; j < level->num_rooms; j++) {
-//             Room *room = &level->rooms[j];
-//             fwrite(&room->position, sizeof(Position), 1, file);
-//             fwrite(&room->width, sizeof(int), 1, file);
-//             fwrite(&room->height, sizeof(int), 1, file);
-//             fwrite(&room->num_doors, sizeof(int), 1, file);
-//             fwrite(&room->num_objects, sizeof(int), 1, file);
-//             fwrite(&room->num_traps, sizeof(int), 1, file);
-
-//             fwrite(room->doors, sizeof(Door), room->num_doors, file);
-//             fwrite(room->object, sizeof(Position), room->num_objects, file);
-//             fwrite(room->traps, sizeof(Trap), room->num_traps, file);
-//         }
-
-//         // Save corridors
-//         fwrite(level->corridors, sizeof(Corridor), level->num_corridors, file);
-//     }
-
-//     fclose(file);
-//     // printf("Game saved successfully!\n");
-// }
-
 void load_game(Game *game, User user) {
-    FILE *file = fopen("save_game.dat", "rb");
+    char file_path[100];
+    sprintf(file_path, "%s/save.dat", user.user_name);
+    FILE *file = fopen(file_path, "rb");
     if (!file) {
-        printf("Failed to open save file for reading.\n");
-        return;
+
+        clear();
+        attron(A_BOLD);
+        mvprintw(LINES/2 -1 ,COLS/2 - 14,"please enter as a signed user");
+        attroff(A_BOLD);
+        refresh();
+        sleep(3);
+        endwin();
+        exit(0);
     }
 
-    
-    fread(&game->current_level, sizeof(int), 1, file);
+ // Load Player (بدون weapons و selected_weapon)
     fread(&game->player.position, sizeof(Position), 1, file);
     fread(&game->player.hp, sizeof(int), 1, file);
-    fread(&game->player.gold_collected, sizeof(int), 1, file);
-    fread(&game->player.num_dagger, sizeof(int), 1, file);
-    fread(&game->player.num_mace, sizeof(int), 1, file);
     fread(&game->player.num_sword, sizeof(int), 1, file);
-    fread(&game->player.num_magic_wand, sizeof(int), 1, file);
+    fread(&game->player.num_mace, sizeof(int), 1, file);
     fread(&game->player.num_normal_arrow, sizeof(int), 1, file);
-    fread(&game->player.num_damage_spell, sizeof(int), 1, file);
+    fread(&game->player.num_magic_wand, sizeof(int), 1, file);
+    fread(&game->player.num_dagger, sizeof(int), 1, file);
+    fread(&game->player.num_weapons, sizeof(int), 1, file);
+    // fread(&game->player.hungry, sizeof(int), 1, file);
     fread(&game->player.num_health_spell, sizeof(int), 1, file);
     fread(&game->player.num_speed_spell, sizeof(int), 1, file);
-    fread(&game->player.num_apple, sizeof(int), 1, file);
-    fread(&game->player.num_bread, sizeof(int), 1, file);
-    fread(&game->player.num_carrot, sizeof(int), 1, file);
-    fread(&game->player.num_fish, sizeof(int), 1, file);
-    fread(&game->player.num_egg, sizeof(int), 1, file);
+    fread(&game->player.num_damage_spell, sizeof(int), 1, file);
+    fread(&game->player.num_normal_food, sizeof(int), 1, file);
+    fread(&game->player.num_spoiled_food, sizeof(int), 1, file);
+    // fread(&game->player.num_fish, sizeof(int), 1, file);
+    // fread(&game->player.num_bread, sizeof(int), 1, file);
+    // fread(&game->player.num_carrot, sizeof(int), 1, file);
+    fread(&game->player.gold_collected, sizeof(int), 1, file);
+    fread(&game->player.color, sizeof(int), 1, file);
+    fread(&game->player.score, sizeof(int), 1, file);
+    // fread(&game->player.hungry, sizeof(int), 1, file);
+    // fread(&game->player.last_hunger_update, sizeof(time_t), 1, file);
+    
+
+    // Load Weapons
+    game->player.weapons = malloc(game->player.num_weapons * sizeof(Weapon));
+    fread(game->player.weapons, sizeof(Weapon), game->player.num_weapons, file);
+
+    // Load Selected Weapon
     fread(&game->player.selected_weapon, sizeof(Weapon), 1, file);
-    fread(&game->music, sizeof(Music), 1, file);
+
+    fread(&game->total_levels, sizeof(int), 1, file);
+
+    // Load Current Level
+    fread(&game->current_level, sizeof(int), 1, file);
+
     fread(&game->difficulty, sizeof(int), 1, file);
     fread(&game->player.color, sizeof(int), 1, file);
+    // game->game_message = malloc(50 * sizeof(char));
+    // fread(&game->game_message , sizeof(char) , 50 , file);
 
-    
-    for (int i = 0; i < game->current_level; i++) {
+    game->game_message = (char*)malloc(100 * sizeof(char));
+    game->game_message = "Lets go!";
+
+    // Allocate Levels
+    game->levels = malloc((game->current_level + 1) * sizeof(Level));
+
+    for (int i = 0; i <= game->current_level; i++) {
         Level *level = &game->levels[i];
+        
+        // Load Level Metadata
         fread(&level->width, sizeof(int), 1, file);
         fread(&level->height, sizeof(int), 1, file);
         fread(&level->num_rooms, sizeof(int), 1, file);
         fread(&level->num_corridors, sizeof(int), 1, file);
 
-        
-        for (int j = 0; j < level->height; j++) {
-            fread(level->map[j], sizeof(char), level->width, file);
-            fread(level->drawMap[j], sizeof(char), level->width, file);
+        // Allocate and Load Map
+        level->map = create_map(level->width, level->height);
+        for(int y = 0; y < level->height; y++) {
+            fread(level->map[y], sizeof(char), level->width, file);
         }
 
-        
-        for (int j = 0; j < level->num_rooms; j++) {
-            Room *room = &level->rooms[j];
-            fread(&room->position, sizeof(Position), 1, file);
-            fread(&room->type, sizeof(int), 1, file);
-            fread(&room->num_doors, sizeof(int), 1, file);
-            fread(&room->num_objects, sizeof(int), 1, file);
-            fread(&room->num_foods, sizeof(int), 1, file);
-            fread(&room->num_golds, sizeof(int), 1, file);
-            fread(&room->num_weapons, sizeof(int), 1, file);
-            fread(&room->num_spells, sizeof(int), 1, file);
-            fread(&room->num_monsters, sizeof(int), 1, file);
-
-            
-            for (int k = 0; k < room->num_doors; k++) {
-                fread(&room->doors[k], sizeof(Door), 1, file);
-            }
-
-            
-            for (int k = 0; k < room->num_objects; k++) {
-                fread(&room->object[k], sizeof(Position), 1, file);
-            }
-
-            
-            for (int k = 0; k < room->num_foods; k++) {
-                fread(&room->foods[k], sizeof(Food), 1, file);
-            }
-
-            
-            for (int k = 0; k < room->num_golds; k++) {
-                fread(&room->golds[k], sizeof(Gold), 1, file);
-            }
-
-            
-            for (int k = 0; k < room->num_weapons; k++) {
-                fread(&room->weapons[k], sizeof(Weapon), 1, file);
-            }
-
-            
-            for (int k = 0; k < room->num_spells; k++) {
-                fread(&room->spells[k], sizeof(Spell), 1, file);
-            }
-
-            
-            for (int k = 0; k < room->num_monsters; k++) {
-                fread(&room->monsters[k], sizeof(Monster), 1, file);
-            }
+        // Allocate and Load DrawMap
+        level->drawMap = create_map(level->width, level->height);
+        for(int y = 0; y < level->height; y++) {
+            fread(level->drawMap[y], sizeof(char), level->width, file);
         }
 
+        // Allocate Corridors
         level->corridors = malloc(level->num_corridors * sizeof(Corridor));
         fread(level->corridors, sizeof(Corridor), level->num_corridors, file);
+
+        // Allocate Rooms
+        level->rooms = malloc(level->num_rooms * sizeof(Room));
+
+        for (int j = 0; j < level->num_rooms; j++) {
+            Room *room = &level->rooms[j];
+            
+            // Load Room Metadata
+            fread(&room->position, sizeof(Position), 1, file);
+            fread(&room->width, sizeof(int), 1, file);
+            fread(&room->height, sizeof(int), 1, file);
+            fread(&room->type, sizeof(RoomType), 1, file);
+            fread(&room->num_doors, sizeof(int), 1, file);
+            fread(&room->num_traps, sizeof(int), 1, file);
+            fread(&room->num_foods, sizeof(int), 1, file);
+            fread(&room->num_weapons, sizeof(int), 1, file);
+            fread(&room->num_spells, sizeof(int), 1, file);
+            fread(&room->num_golds, sizeof(int), 1, file);
+            fread(&room->num_monsters, sizeof(int), 1, file);
+            fread(&room->num_pass_door, sizeof(int), 1, file);
+            fread(&room->num_objects, sizeof(int), 1, file);
+
+
+            // size_t music_path_len;
+            // fread(&music_path_len, sizeof(size_t), 1, file);
+            // room->music_path = (char*)malloc(music_path_len * sizeof(char));
+            // fread(room->music_path, sizeof(char), music_path_len, file);
+            // room->music_path = malloc(100 * sizeof(char));
+            // fread(room->music_path , sizeof(char) , 100, file);
+
+
+            // Load Doors
+            room->doors = malloc(room->num_doors * sizeof(Door));
+            fread(room->doors, sizeof(Door), room->num_doors, file);
+            
+            // Load Pass Door
+            fread(&room->pass_door, sizeof(Door), 1, file);
+            fread(&room->pass_key, sizeof(Position), 1, file);
+
+            // Load Traps
+            room->traps = malloc(room->num_traps * sizeof(Trap));
+            fread(room->traps, sizeof(Trap), room->num_traps, file);
+
+            // Load Foods
+            room->foods = malloc(room->num_foods * sizeof(Food));
+            fread(room->foods, sizeof(Food), room->num_foods, file);
+
+            // Load Weapons
+            room->weapons = malloc(room->num_weapons * sizeof(Weapon));
+            fread(room->weapons, sizeof(Weapon), room->num_weapons, file);
+
+            // Load Spells
+            room->spells = malloc(room->num_spells * sizeof(Spell));
+            fread(room->spells, sizeof(Spell), room->num_spells, file);
+
+            // Load Golds
+            room->golds = malloc(room->num_golds * sizeof(Gold));
+            fread(room->golds, sizeof(Gold), room->num_golds, file);
+
+            // Load Monsters
+            room->monsters = malloc(room->num_monsters * sizeof(Monster));
+            fread(room->monsters, sizeof(Monster), room->num_monsters, file);
+            
+
+            room->object = malloc(room->num_objects * sizeof(Position));
+            fread(room->object, sizeof(Position), room->num_objects, file);
+            // fwrite(room->object, sizeof(Position), room->num_objects, file);
+
+        }
     }
 
     fclose(file);
-    printf("Game loaded successfully.\n");
 }
-
-
-// void load_game(Game *game, User user) {
-//     char file_path[100];
-//     sprintf(file_path , "%s/save.dat" , user.user_name);
-//     FILE *file = fopen(file_path, "rb");
-//     if (!file) {
-//         perror("Error opening file for loading");
-//         return;
-//     }
-
-//     // Load basic game information
-//     fread(&game->player, sizeof(Player), 1, file);
-//     fread(&game->total_levels, sizeof(int), 1, file);
-//     fread(&game->current_level, sizeof(int), 1, file);
-
-//     // Allocate memory for levels
-//     game->levels = malloc(game->total_levels * sizeof(Level));
-
-//     for (int i = 0; i <= game->current_level; i++) {
-//         Level *level = &game->levels[i];
-//         fread(&level->width, sizeof(int), 1, file);
-//         fread(&level->height, sizeof(int), 1, file);
-//         fread(&level->num_rooms, sizeof(int), 1, file);
-//         fread(&level->num_corridors, sizeof(int), 1, file);
-
-//         // Allocate memory for map
-//         level->map = create_map(level->width, level->height);
-//         for (int y = 0; y < level->height; y++) {
-//             fread(level->map[y], sizeof(char), level->width, file);
-//         }
-
-//         level->drawMap = create_map(level->width, level->height);
-//         for (int x = 0; x < level->height; x++) {
-//             fread(level->drawMap[x], sizeof(char), level->width, file);
-//         }
-
-//         // Allocate memory for rooms
-//         level->rooms = malloc(level->num_rooms * sizeof(Room));
-//         for (int j = 0; j < level->num_rooms; j++) {
-//             Room *room = &level->rooms[j];
-//             fread(&room->position, sizeof(Position), 1, file);
-//             fread(&room->width, sizeof(int), 1, file);
-//             fread(&room->height, sizeof(int), 1, file);
-//             fread(&room->num_doors, sizeof(int), 1, file);
-//             fread(&room->num_objects, sizeof(int), 1, file);
-//             fread(&room->num_traps, sizeof(int), 1, file);
-
-//             room->doors = malloc(room->num_doors * sizeof(Door));
-//             fread(room->doors, sizeof(Door), room->num_doors, file);
-
-//             room->object = malloc(room->num_objects * sizeof(Position));
-//             fread(room->object, sizeof(Position), room->num_objects, file);
-
-//             room->traps = malloc(room->num_traps * sizeof(Trap));
-//             fread(room->traps, sizeof(Trap), room->num_traps, file);
-//         }
-
-//         // Allocate memory for corridors
-//         level->corridors = malloc(level->num_corridors * sizeof(Corridor));
-//         fread(level->corridors, sizeof(Corridor), level->num_corridors, file);
-//     }
-
-//     fclose(file);
-//     // printf("Game loaded successfully!\n");
-// }
 
 void init_game(int n , User user , GameSettings *settings){
     // initscr();
@@ -1161,11 +1270,13 @@ void init_game(int n , User user , GameSettings *settings){
     Game game;
     if (n==0)
     {
-        game.total_levels = 3;
+        game.total_levels = 4;
         game.current_level = 0;
         int map_width = COLS - 80, map_height = LINES -6, num_rooms = 6 + rand() % (game.current_level + 1);
-        game.levels = malloc(4 * sizeof(Level));
+        game.levels = malloc(5 * sizeof(Level));
         game.levels[game.current_level] = create_level(map_width, map_height, num_rooms);
+
+        active_monsters(&game.levels[game.current_level].rooms[0]); 
         game.game_message = (char*)malloc(100 * sizeof(char));
 
 
@@ -1183,17 +1294,23 @@ void init_game(int n , User user , GameSettings *settings){
         game.player.num_damage_spell = 0;
         game.player.num_health_spell = 0;
         game.player.num_speed_spell = 0;
-        game.player.num_apple = 0;
-        game.player.num_bread = 0;
-        game.player.num_carrot = 0;
-        game.player.num_fish = 0;
-        game.player.num_egg = 0;
+        game.player.num_normal_food = 0;
+        game.player.num_spoiled_food = 0;
+        // game.player.num_carrot = 0;
+        // game.player.num_fish = 0;
+        // game.player.num_egg = 0;
+        game.player.score = 0;
+
+        // game.player.hungry = MAX_HUNGER;
+        // game.player.last_hunger_update = time(NULL);
+
         game.music.music = NULL;
         game.music.is_playing = 0;
         game.difficulty = settings->difficulty;
         game.player.color = settings->player_color;
         game.game_message = "Lets go!";
-        game.player.weapons = malloc(1 * sizeof(Weapon));
+        game.player.num_weapons = 1;
+        game.player.weapons = malloc(game.player.num_weapons* sizeof(Weapon));
         Weapon mace;
         mace.attack_power = 5;
         mace.position.y =-1;
@@ -1201,7 +1318,6 @@ void init_game(int n , User user , GameSettings *settings){
         mace.type = WEAPON_Mace;
         game.player.weapons[0] = mace;
         game.player.num_mace = 1000;
-        game.player.num_weapons = 1;
         game.player.selected_weapon = game.player.weapons[0];
         // game.music.is_playing = 0;
         // game.music.volume = 64;
@@ -1224,19 +1340,21 @@ void init_game(int n , User user , GameSettings *settings){
     // Game loop
     int key;
     while (1) {
+        // update_hunger(&game.player);
         draw_game(&game);
         refresh();
         key = getch();
         if (key == 'q'){
-            // pause_menu();
+            pause_menu(&game, user);
             // save_game(&game , user);
-            break;
+            // break;
         }
         move_player(&game, key);
         move_monsters(&game);
         draw_game(&game);
         refresh();
     }
+
 
     // Cleanup
     // free_map(game.levels[0].map, game.levels[0].height);
@@ -1249,26 +1367,134 @@ void init_game(int n , User user , GameSettings *settings){
     // return 0;
 }
 
-void init_game_timer(GameTimer *timer) {
-    timer->total_time = 300;
-    timer->penalty = 10;     
+
+// void update_hunger(Player *player) {
+//     time_t current_time = time(NULL);
+//     if (difftime(current_time, player->last_hunger_update) >= HUNGER_DECREASE_INTERVAL) {
+//         player->hungry = (player->hungry > 0) ? player->hungry - 1 : 0;
+//         player->last_hunger_update = current_time;
+        
+//         // اعمال آسیب هنگام گرسنگی کامل
+//         if (player->hungry == 0) {
+//             player->hp -= HUNGER_DAMAGE;
+//             if (player->hp < 0) player->hp = 0;
+//         }
+//     }
+
+void pause_menu(Game *game, User user) {
+    int width = 38;
+    int height = 11;
+    int start_x = (COLS - width) / 2; 
+    int start_y = (LINES - height) / 2;
+    int choice = 0;
+    
+    
+    WINDOW *shadow_win = newwin(height + 2, width + 2, start_y + 1, start_x + 1);
+    wbkgd(shadow_win, COLOR_PAIR(8));
+    wrefresh(shadow_win);
+
+    WINDOW *pause_win = newwin(height, width, start_y, start_x);
+    wbkgd(pause_win, COLOR_PAIR(1));
+    box(pause_win, 0, 0);
+    
+   
+    wattron(pause_win, COLOR_PAIR(3) | A_BOLD);
+    mvwprintw(pause_win, 1, (width - 11)/2, "⏸ PAUSE MENU");
+    wattroff(pause_win, COLOR_PAIR(3) | A_BOLD);
+    
+    
+    mvwaddch(pause_win, 2, 1, ACS_LTEE);
+    mvwhline(pause_win, 2, 2, ACS_HLINE, width - 2);
+    mvwaddch(pause_win, 2, width - 2, ACS_RTEE);
+    
+    
+    char *choices[] = {
+        "▶ Resume Game", 
+        "⏏ Save & Quit"
+    };
+    
+    while(1) {
+        for(int i = 0; i < 2; i++) {
+            int y_pos = 4 + i*2;
+            int x_pos = (width - strlen(choices[i]))/2;
+            
+            if(i == choice) {
+                wattron(pause_win, COLOR_PAIR(2) | A_BOLD);
+                mvwprintw(pause_win, y_pos, x_pos - 2, "» ");
+            } else {
+                wattroff(pause_win, COLOR_PAIR(2) | A_BOLD);
+            }
+            
+            mvwprintw(pause_win, y_pos, x_pos, "%s", choices[i]);
+        }
+        
+
+        wattron(pause_win, COLOR_PAIR(5) | A_ITALIC);
+        mvwprintw(pause_win, height - 2, 5, "Use ↑↓ arrows | Enter: Select");
+        wattroff(pause_win, COLOR_PAIR(5) | A_ITALIC);
+        
+        wrefresh(pause_win);
+        
+        int ch = getch();
+        switch(ch) {
+            case KEY_UP:
+                choice = (choice == 0) ? 1 : 0;
+                break;
+            case KEY_DOWN:
+                choice = (choice == 1) ? 0 : 1;
+                break;
+            case 10: // Enter
+                if(choice == 0) {
+                    delwin(shadow_win);
+                    delwin(pause_win);
+                    return;
+                } else {
+                    if(strcmp(user.user_name, "guest") != 0) {
+                        
+                        wattron(pause_win, COLOR_PAIR(4));
+                        mvwprintw(pause_win, 7, (width - 15)/2, "Saving progress...");
+                        wattroff(pause_win, COLOR_PAIR(4));
+                        wrefresh(pause_win);
+                        napms(500);
+                        save_game(game, user);
+                    }
+                    delwin(shadow_win);
+                    delwin(pause_win);
+                    endwin();
+                    exit(0);
+                }
+                break;
+        }
+    }
+}
+
+void init_game_timer(GameTimer *timer , Game* game) {
+    timer->total_time = 500 - (game->difficulty * 100);
+    timer->penalty = 3 - game->difficulty;     
     timer->update_interval = 30;
 }
 
 void *game_timer_thread(void *arg) {
     Game *game = (Game *)arg;
     GameTimer timer;
-    init_game_timer(&timer);
+    init_game_timer(&timer , game);
     Level *level = &game->levels[game->current_level];
 
+    int interval_counter = 0;
     while (timer.total_time > 0) {
         sleep(1);
         timer.total_time--;
-
+        interval_counter++;
         
-        if (timer.total_time % timer.update_interval == 0) {
-            game->player.hp -= timer.penalty;
+        // if (timer.total_time % timer.update_interval == 0) {
+        //     game->player.hp -= timer.penalty;
+        // }
+        if (interval_counter == timer.update_interval)
+        {
+            game->player.hp += timer.penalty;
+            interval_counter = 0;
         }
+        
 
         game->timer.minute = timer.total_time / 60;
         game->timer.second = timer.total_time % 60;
@@ -1278,33 +1504,37 @@ void *game_timer_thread(void *arg) {
 
         
         if (game->player.hp <= 0) {
-            clear();
-            mvprintw(LINES/2, COLS/2-10, "Game Over! You lost.");
-            refresh();
-            sleep(3);
-            endwin();
-            exit(0);
+
+            game->game_message = "You dead! You lost";
+            sleep(1);
+            game_over(game , 0);
+            // end_game = 1;
+            // return game;
+            // clear();
+            // mvprintw(LINES/2, COLS/2-10, "Game Over! You lost.");
+            // refresh();
+            // sleep(3);
+            // endwin();
+            // exit(0);
         }
 
         refresh();
     }
 
-    
-    clear();
-    mvprintw(LINES/2, COLS/2-10, "Game Over! Time's up.");
-    refresh();
-    sleep(3);
-    endwin();
-    exit(0);
+
+    game->game_message = "Time is over! You lost";
+    sleep(1);
+    game_over(game , 0);
+
 }
 
 
 void next_level(Game* game){
 
-    if (game->current_level == 3) {
-        save_game(game, curent_user);
-        game_over(game , 1);
-    }
+    // if (game->current_level == 4) {
+    //     save_game(game, curent_user);
+    //     game_over(game , 1);
+    // }
 
     game->current_level++;
     // if (game->current_level >= game->total_levels) {
@@ -1321,7 +1551,16 @@ void next_level(Game* game){
     int map_width = COLS - 80, map_height = LINES - 6;
     int num_rooms = 6 + rand() % (game->current_level + 1);
 
+    if (game->current_level == 4)
+    {
+        num_rooms = 1;
+        Final_level = 1;
+    }
+    
+
     game->levels[game->current_level] = create_level(map_width, map_height, num_rooms);
+
+    active_monsters(&game->levels[game->current_level].rooms[0]);
 
     game->player.position.x = game->levels[game->current_level].rooms[0].position.x + 
                               game->levels[game->current_level].rooms[0].width / 2;
@@ -1360,24 +1599,37 @@ Room create_room(int y, int x, int width, int height) {
     room.height = height;
     room.num_doors = 1 + rand() % 2;
     room.num_objects = rand() % 2;
-    room.doors = malloc(room.num_doors * sizeof(Door));
-    room.object = malloc(room.num_objects * sizeof(Position));
     room.num_pass_door = rand()%2;
     room.num_weapons = rand() % 2;
-    room.weapons = malloc(room.num_weapons * sizeof(Weapon));
-    room.num_foods = rand() % 3;
-    room.foods = malloc(room.num_foods * sizeof(Food));
-    room.num_golds = rand() % 3;
-    room.golds = malloc(room.num_golds * sizeof(Gold));
-    room.music_path = NULL;/////
+    room.num_foods = rand() % 3; 
+    room.num_golds = rand() % 3;   
+    // room.music_path = NULL;/////
     room.num_monsters = 1 + rand() % 2;
-    room.monsters = malloc(room.num_monsters * sizeof(Monster));
+    
 
     int rand_type = rand() % 100;
     if (rand_type < 60) room.type = ROOM_NORMAL;   
     else if (rand_type < 75) room.type = ROOM_GOLD; 
     else if (rand_type < 100) room.type = ROOM_SPELL; 
     // else room.type = ROOM_TRAP;
+
+    if (Final_level == 1)
+    {
+        room.num_doors = 0;
+        room.num_pass_door = 0;
+        room.num_monsters = 10;
+        room.num_golds = 5;
+        room.type = ROOM_GOLD;
+        room.num_weapons = 4;
+    }
+
+    room.doors = malloc(room.num_doors * sizeof(Door));
+    room.object = malloc(room.num_objects * sizeof(Position));
+    room.weapons = malloc(room.num_weapons * sizeof(Weapon));
+    room.foods = malloc(room.num_foods * sizeof(Food));
+    room.golds = malloc(room.num_golds * sizeof(Gold));
+    room.monsters = malloc(room.num_monsters * sizeof(Monster));
+    
 
     if (room.type == ROOM_NORMAL)
     {
@@ -1386,7 +1638,7 @@ Room create_room(int y, int x, int width, int height) {
         // room.music_track = malloc(100 * sizeof(char));
         // room.music_track = strdup("Musics/Butcher_mp3.mp3"); 
         // strcpy(room.music_path, "Musics/Butcher_mp3.mp3");
-        room.music_path = strdup("Musics/Butcher_mp3.mp3");
+        // room.music_path = strdup("Musics/Butcher_mp3.mp3");
 
 
         /* code */
@@ -1397,7 +1649,14 @@ Room create_room(int y, int x, int width, int height) {
         room.num_spells = rand() % 2;
         // room.music_path = strdup("Musics/Best_Shot_mp3.mp3"); 
         // strcpy(room.music_path, "Musics/Best_Shot_mp3.mp3");
-        room.music_path = strdup("Musics/Best_Shot_mp3.mp3");
+        // room.music_path = strdup("Musics/Best_Shot_mp3.mp3");
+
+        // if (Final_level == 1)
+        // {
+        //     room.num_traps = 10;
+        //     room.music_path = strdup("Musics/crysis-2-_epilogue_main_theme.mp3");
+        // }
+        
 
 
         /* code */
@@ -1407,7 +1666,7 @@ Room create_room(int y, int x, int width, int height) {
         room.num_spells = 2 + rand() % 2;
         // room.music_path = strdup("Musics/Halloween_Party_Night_mp3.mp3"); 
         // strcpy(room.music_path, "Musics/Halloween_Party_Night_mp3.mp3");
-        room.music_path = strdup("Musics/Halloween_Party_Night_mp3.mp3");
+        // room.music_path = strdup("Musics/Halloween_Party_Night_mp3.mp3");
 
 
 
@@ -1478,10 +1737,20 @@ Room create_room(int y, int x, int width, int height) {
     }
 
     for (int i = 0; i < room.num_foods; i++) {
+        room.foods[i].type = rand() % 2;
+        switch (room.foods[i].type)
+        {
+        case FOOD_NORMAL:
+            room.foods[i].hp_restore = 5 + rand()%5;
+            break;
+        case FOOD_SPOILED:
+            room.foods[i].hp_restore = -(5 + rand()%5);
+            break;
+        default:
+            break;
+        }
         room.foods[i].position.x = x + 1 + rand() % (width - 2);
         room.foods[i].position.y = y + 1 + rand() % (height - 2);
-        room.foods[i].type = rand() % 2;
-        room.foods[i].hp_restore = (rand() % 15) + 5;
     }
 
     for (int i = 0; i < room.num_weapons; i++) {
@@ -1517,10 +1786,29 @@ Room create_room(int y, int x, int width, int height) {
 
     
     for (int i = 0; i < room.num_spells; i++) {
+        room.spells[i].type = rand()%3;
+        switch (room.spells[i].type)
+        {
+        case SPELL_Health:
+            room.spells[i].hp_restore = 3;
+            room.spells[i].duration = 0;
+
+            break;
+        case SPELL_Speed:
+            room.spells[i].hp_restore = 0;
+            room.spells[i].duration = 8;
+
+            break;
+        case SPELL_Damage:
+            room.spells[i].hp_restore = 0;
+            room.spells[i].duration = 8;
+            break;    
+        default:
+            break;
+        }
         room.spells[i].position.x = x + 1 + rand() % (width - 2);
         room.spells[i].position.y = y + 1 + rand() % (height - 2);
-        room.spells[i].effect_type = rand() % 3;
-        room.spells[i].duration = (rand() % 10) + 5;
+        
     }
     
     for (int i = 0; i < room.num_objects; i++)
@@ -1673,7 +1961,7 @@ void add_room_to_map(Room room, char **map, int s) {
     }
 
     for (int i = 0; i < room.num_monsters; i++) {
-        map[room.spells[i].position.y][room.spells[i].position.x] = 'M'; 
+        map[room.monsters[i].position.y][room.monsters[i].position.x] = 'M'; 
     }
 
     if (s == 1)
@@ -1900,8 +2188,14 @@ Level create_level(int width, int height, int num_rooms) {
     level.rooms = malloc(num_rooms * sizeof(Room));
 
     for (int i = 0; i < num_rooms; i++) {
-        int room_width = 6 + rand() % 4;
-        int room_height = 6 + rand() % 4;
+
+        int room_width = 8 + rand() % 4;
+        int room_height = 8 + rand() % 4;
+        if (num_rooms == 1)
+        {
+            room_width = 20;
+            room_height = 20;
+        }
         int room_y, room_x;
         Room room;
         // int attempts = 0;
@@ -1915,13 +2209,21 @@ Level create_level(int width, int height, int num_rooms) {
 
         
         level.rooms[level.num_rooms++] = room;
-        if (i == 5)
+        if (num_rooms == 1)
         {
-            add_room_to_map(room, level.map, 1);  
+            add_room_to_map(room, level.map,0); 
         }
         else{
-            add_room_to_map(room, level.map, 0);  
+            if (i == 5)
+            {
+                add_room_to_map(room, level.map, 1);  
+            }
+            else{
+                add_room_to_map(room, level.map, 0);  
+            }
         }
+        
+        
         
     }
 
@@ -1931,11 +2233,11 @@ Level create_level(int width, int height, int num_rooms) {
 
 void reveal_weapons(Weapon* weapon , Level* level , Game* game){
     switch (weapon->type) {
-        case WEAPON_Sword: game->player.num_sword++; break;
+        case WEAPON_Sword: game->player.num_sword+=500; break;
         case WEAPON_Mace: game->player.num_mace++; break;
-        case WEAPON_Normal_Arrow: game->player.num_normal_arrow++; break;
-        case WEAPON_Magic_Wand: game->player.num_magic_wand++; break;
-        case WEAPON_Dagger: game->player.num_dagger++; break;
+        case WEAPON_Normal_Arrow: game->player.num_normal_arrow+=20; break;
+        case WEAPON_Magic_Wand: game->player.num_magic_wand+=8; break;
+        case WEAPON_Dagger: game->player.num_dagger+=10; break;
         // default: symbol = "?";
     }
 
@@ -1961,31 +2263,36 @@ void reveal_weapons(Weapon* weapon , Level* level , Game* game){
 
 void reveal_foods(Food* food, Room* room , Level* level , Game* game){
     switch (food->type) {
-        case FOOD_Apple:  {
-            game->player.hungry -= 2;
-            game->player.num_apple++;
+        case FOOD_NORMAL:  {
+            // game->player.hungry += 2;
+            game->player.hp+= food->hp_restore;;
+            game->player.num_normal_food++;
             break;
         }
-        case FOOD_Egg:  {
-            game->player.hungry -= 3; 
-            game->player.num_egg++;
+        case FOOD_SPOILED:  {
+            // game->player.hungry += 3; 
+            game->player.hp+= food->hp_restore;;
+            game->player.num_spoiled_food++;
             break;
         }
-        case FOOD_Bread:  {
-            game->player.hungry -= 4; 
-            game->player.num_bread++;
-            break;
-        }
-        case FOOD_Carot:  {
-            game->player.hungry -= 2; 
-            game->player.num_carrot++;
-            break;
-        }
-        case FOOD_Fish:  {
-            game->player.hungry -= 5; 
-            game->player.num_fish++;
-            break;
-        }
+        // case FOOD_Bread:  {
+        //     game->player.hungry += 4;
+        //     game->player.hp++;
+        //     game->player.num_bread++;
+        //     break;
+        // }
+        // case FOOD_Carot:  {
+        //     game->player.hungry += 2; 
+        //     game->player.hp++;
+        //     game->player.num_carrot++;
+        //     break;
+        // }
+        // case FOOD_Fish:  {
+        //     game->player.hungry += 5; 
+        //     game->player.hp++;
+        //     game->player.num_fish++;
+        //     break;
+        // }
     }
 
 
@@ -2007,11 +2314,11 @@ void reveal_foods(Food* food, Room* room , Level* level , Game* game){
             if (room->foods[j].position.x == food->position.x &&
                 room->foods[j].position.y == food->position.y) {
 
-            // حذف غذا از آرایه
+
                 for (int k = j; k < room->num_foods - 1; k++) {
                     room->foods[k] = room->foods[k + 1];
                 }
-                room->num_foods--;  // کاهش تعداد غذاهای موجود
+                room->num_foods--;
                 break;
             }
         }
@@ -2036,9 +2343,23 @@ void reveal_foods(Food* food, Room* room , Level* level , Game* game){
 
 void reveal_spells(Spell* spell , Level* level , Game* game){
     switch (spell->type) {
-        case SPELL_Health:  game->player.num_health_spell++; break;
-        case SPELL_Damage:  game->player.num_damage_spell++; break;
-        case SPELL_Speed:  game->player.num_speed_spell++; break;
+        case SPELL_Health:  {
+            game->player.num_health_spell++;
+            game->player.hp += spell->hp_restore; 
+            break;
+        }
+        case SPELL_Damage:  {
+            game->player.num_damage_spell++;
+            speed2x = 1; 
+            speed_counter = spell->duration;
+            break;
+        }
+        case SPELL_Speed:  {
+            game->player.num_speed_spell++;
+            damage2x = 1;
+            damage_counter = spell->duration;
+            break;
+        }
     }
 
 
@@ -2064,7 +2385,7 @@ void reveal_spells(Spell* spell , Level* level , Game* game){
 
 void reveal_golds(Gold* gold , Level* level , Game* game){
     game->player.gold_collected++;
-
+    game->player.score++;
     for (int i = 0; i < level->num_rooms; i++) {
         for (int j = 0; j < level->rooms[i].num_golds; j++) {
             if (&level->rooms[i].golds[j] == gold) {
@@ -2097,7 +2418,7 @@ void init_audio() {
 
 
 void load_music(Music *music, const char *file_path) {
-    if (music == NULL) return; // بررسی مقداردهی
+    if (music == NULL) return; 
     if (music->music != NULL) {
         Mix_FreeMusic(music->music);
     }
@@ -2127,12 +2448,18 @@ void play_music(Music *music) {
 }
 
 void play_room_music(Game *game, Room *room) {
-    if (room->music_path == NULL || room->music_path[0] == '\0') { 
-        return;
-    }
+    // if (room->music_path == NULL || room->music_path[0] == '\0') { 
+    //     return;
+    // }
+    if (!room || !ROOM_MUSIC_PATHS[room->type]) return;
 
     if (!Mix_PlayingMusic()) {
-        load_music(&game->music, room->music_path);
+        if(Final_level == 1){
+            load_music(&game->music, ROOM_MUSIC_PATHS[3]);
+        }
+        else{
+            load_music(&game->music, ROOM_MUSIC_PATHS[room->type]);
+        }
         play_music(&game->music);
     }
 }
@@ -2159,7 +2486,7 @@ void dis_active_monsters(Level* level){
 void add_weapon_to_player(Game* game, Weapon* new_weapon){
     for (int i = 0; i < game->player.num_weapons; i++) {
         if (game->player.weapons[i].type == new_weapon->type) {
-            // اگر اسلحه از قبل موجود باشد، تعداد آن را افزایش می‌دهیم
+
             switch (new_weapon->type) {
                 case WEAPON_Sword: game->player.num_sword++; break;
                 // case WEAPON_Mace: symbol = "⚒"; break;
@@ -2171,7 +2498,7 @@ void add_weapon_to_player(Game* game, Weapon* new_weapon){
         }
     }
     
-    // اگر اسلحه جدید است، آن را به لیست سلاح‌ها اضافه می‌کنیم
+
     game->player.num_weapons += 1;
     switch (new_weapon->type) {
         case WEAPON_Sword: game->player.num_sword++; break;
@@ -2183,6 +2510,19 @@ void add_weapon_to_player(Game* game, Weapon* new_weapon){
     game->player.weapons = realloc(game->player.weapons, game->player.num_weapons * sizeof(Weapon));
     game->player.weapons[game->player.num_weapons - 1] = *new_weapon;
 }
+
+void update_food_decay(Food* food) {
+    if (food->decay_time > 0) {
+        food->decay_time--;
+    } else { 
+
+        if (food->type == FOOD_NORMAL) {
+            food->type = FOOD_SPOILED;
+            food->hp_restore = -5;
+        }
+    }
+}
+
 
 void move_player(Game *game, int key) {
 
@@ -2201,17 +2541,37 @@ void move_player(Game *game, int key) {
         return;
     }
 
+    int shift_active = 0;
+
+    if (key == 'z') { 
+        shift_active = 1;
+        key = getch();
+    }
+    
+
+    int move_step = shift_active ? 2 : 1;
+
+    if (speed2x == 1 && speed_counter > 0)
+    {
+        move_step *=2;
+        speed_counter--;
+    }
+    if (speed_counter == 0)
+    {
+        speed2x = 0;
+    }
+    
+
     Position new_pos = game->player.position;
     Level *level = &game->levels[game->current_level];
     char **map = level->map;
     char **drawMap = level->drawMap;
 
-    int start_y = 0;
-    int start_x =  (COLS - level->width) / 2;
-    if (key == KEY_UP && new_pos.y > 0) new_pos.y--;
-    else if (key == KEY_DOWN && new_pos.y < level->height - 1) new_pos.y++;
-    else if (key == KEY_LEFT && new_pos.x > 0) new_pos.x--;
-    else if (key == KEY_RIGHT && new_pos.x < level->width - 1) new_pos.x++;
+
+    if (key == KEY_UP && new_pos.y - move_step >= 0) new_pos.y-= move_step;
+    else if (key == KEY_DOWN && new_pos.y + move_step < level->height) new_pos.y+= move_step;
+    else if (key == KEY_LEFT && new_pos.x - move_step >= 0) new_pos.x-=move_step;
+    else if (key == KEY_RIGHT && new_pos.x + move_step < level->width) new_pos.x+=move_step;
 
     char next_tile = map[new_pos.y][new_pos.x];
 
@@ -2223,6 +2583,9 @@ void move_player(Game *game, int key) {
                     if (new_pos.y == room.doors[j].position.y && new_pos.x == room.doors[j].position.x) {
                         reveal_room(room, map, drawMap);
                         active_monsters(&room);
+                        for (int i = 0; i < room.num_foods; i++) {
+                            update_food_decay(&room.foods[i]);
+                        }
                     }
                 }
             }
@@ -2245,6 +2608,9 @@ void move_player(Game *game, int key) {
                 if (new_pos.y >= room.position.y && new_pos.y < room.position.y + room.height && new_pos.x >= room.position.x && new_pos.x < room.position.x + room.width)
                 {
                     play_room_music(game, &room);
+                    for (int i = 0; i < room.num_foods; i++) {
+                            update_food_decay(&room.foods[i]);
+                    }
                     break;
                 }
             }
@@ -2362,10 +2728,38 @@ Monster* find_monster_at(Game *game, Position pos) {
     return NULL;
 }
 
+// void check_final_battle(Game *game) {
+//     if(game->levels[4].rooms[0].num_monsters == 0) {
+//         game_over(game , 1);
+//     }
+// }
+
 void handle_battle(Game *game, Monster *monster) {
     Level *level = &game->levels[game->current_level];
     WINDOW *battle_win = newwin(10, 40, LINES/2-5, COLS/2-20);
     keypad(battle_win, TRUE);
+
+    switch (monster->type)
+    {
+    case Deaⅿon:
+        game->game_message = "a snake heats you!";
+        break;
+    case Dragon:
+        game->game_message = "a dragon heats you!";
+        break;
+    case Giant:
+        game->game_message = "a giant heats you!";
+        break;
+    case Snake:
+        game->game_message = "a snake heats you!";
+        break;
+    case Undead:
+        game->game_message = "a undead heats you!";
+        break;            
+    default:
+        break;
+    }
+    
     
     while (1) {
         wclear(battle_win);
@@ -2390,8 +2784,41 @@ void handle_battle(Game *game, Monster *monster) {
                 
                 if (monster->health <= 0) {
                     remove_monster(level, monster);
+                    switch (monster->type)
+                    {
+                    case Deaⅿon:
+                        game->game_message = "you killed a deamon";
+                        game->player.score += 5;
+                        break;
+                    case Dragon:
+                        game->game_message = "you killed a dragon";
+                        game->player.score += 10;
+                        break;
+                    case Giant:
+                        game->game_message = "you killed a giant";
+                        game->player.score += 15;
+                        break;
+                    case Snake:
+                        game->game_message = "you killed a snake";
+                        game->player.score += 20;
+                        break;
+                    case Undead:
+                        game->game_message = "you killed a undead";
+                        game->player.score += 30;
+                        break;                                                                                            
+                    default:
+                        break;
+                    }
                     wclear(battle_win);
                     delwin(battle_win);
+                    if (Final_level == 1)
+                    {
+                        if(game->levels[4].rooms[0].num_monsters == 0) {
+                            game_over(game , 1);
+                            return;
+                        }
+                    }
+                    
                     return;
                 }
                 
@@ -2548,8 +2975,18 @@ void remove_monster(Level *level, Monster *monster) {
         for (int j = 0; j < room->num_monsters; j++) {
             if (&room->monsters[j] == monster) {
                 // Restore original tile
+                // level->map[monster->position.y][monster->position.x] = monster->last_tile;
+                
+                // level->drawMap[monster->position.y][monster->position.x] = monster->last_tile;
+
                 level->map[monster->position.y][monster->position.x] = monster->last_tile;
-                level->drawMap[monster->position.y][monster->position.x] = monster->last_tile;
+                if (monster->last_tile == 'T')
+                {
+                    level->drawMap[monster->position.y][monster->position.x] = '.';
+                }
+                else{
+                    level->drawMap[monster->position.y][monster->position.x] = monster->last_tile;
+                }
                 
                 // Remove from array
                 for (int k = j; k < room->num_monsters-1; k++) {
@@ -2562,20 +2999,112 @@ void remove_monster(Level *level, Monster *monster) {
     }
 }
 
+void free_game_resources(Game *game) {
+
+    for (int i = 0; i < game->total_levels; i++) {
+        Level *level = &game->levels[i];
+
+
+        free_map(level->map, level->height);
+        free_map(level->drawMap, level->height);
+
+        for (int j = 0; j < level->num_rooms; j++) {
+            Room *room = &level->rooms[j];
+
+            free(room->doors);
+
+
+            free(room->foods);
+            free(room->weapons);
+            free(room->traps);
+            free(room->spells);
+            free(room->golds);
+            free(room->monsters);
+            free(room->object);
+
+            // if (room->music_path) {
+            //     free(room->music_path);
+            // }
+        }
+
+
+        free(level->rooms);
+        free(level->corridors);
+    }
+
+
+    free(game->levels);
+
+
+    if (game->game_message) {
+        free(game->game_message);
+    }
+
+
+    if (game->music.music) {
+        Mix_FreeMusic(game->music.music);
+    }
+
+
+    Mix_CloseAudio();
+    SDL_Quit();
+}
+
+
 void game_over(Game *game, int won) {
     clear();
-    if (won) {
-        mvprintw(LINES/2, COLS/2-10, "🎉 VICTORY! Score: %d", game->player.gold_collected);
-    } else {
-        mvprintw(LINES/2, COLS/2-10, "💀 GAME OVER! Score: %d", game->player.gold_collected);
-    }
-    mvprintw(LINES/2+2, COLS/2-15, "Press any key to return to menu");
-    sleep(2);
     refresh();
-    getch();
+    stop_music(&game->music);
+    if (won) {
+        // mvprintw(LINES/2, COLS/2-10, "🎉 VICTORY! Score: %d", game->player.gold_collected);
+                // نمایش پیام پیروزی
+        WINDOW *win = newwin(10, 40, LINES/2-5, COLS/2-20);
+        box(win, 0, 0);
+        mvwprintw(win, 2, 12, "🎉 VICTORY! 🎉");
+        mvwprintw(win, 4, 8, "All monsters defeated!");
+        mvwprintw(win, 4, 8, "Score: %d" , game->player.gold_collected);
+        mvwprintw(win, 6, 10, "Press any key...");
+        if(strcmp(curent_user.user_name , "guest") != 0){
+            save_score(curent_user.user_name , game->player.score ,game->player.gold_collected);
+        }
+        refresh();
+        wrefresh(win);
+        getch();
+        delwin(win);
+        
+        // بازگشت به منوی اصلی
+        // game->game_state = GAME_STATE_MAIN_MENU;
+        // gameMenu(curent_user, &settings);
+        // return;
+    } else {
+        // mvprintw(LINES/2, COLS/2-10, "💀 GAME OVER! Score: %d", game->player.gold_collected);
+        WINDOW *win = newwin(10, 40, LINES/2-5, COLS/2-20);
+        box(win, 0, 0);
+        mvwprintw(win, 2, 12, "💀 GAME OVER! 💀");
+        mvwprintw(win, 4, 8, "%s" , game->game_message);
+        mvwprintw(win, 4, 8, "Score: %d" , game->player.gold_collected);
+        mvwprintw(win, 6, 10, "Press any key...");
+        refresh();
+        wrefresh(win);
+        getch();
+        delwin(win);
+        
+        // بازگشت به منوی اصلی
+        // game->game_state = GAME_STATE_MAIN_MENU;
+        
+        // return;
+    }
+    // mvprintw(LINES/2+2, COLS/2-15, "Press any key to return to menu");
+    // sleep(2);
+    // refresh();
+    // getch();
+
+    // free_game_resources(game);
+    endwin();
+    exit(0);
     
-    // Disable continue functionality
-    game->current_level = -1;
+    // // Disable continue functionality
+    // game->current_level = -1;
     // save_game(game, current_user);
 }
 
@@ -2600,7 +3129,7 @@ void move_monster(Game *game, Monster *monster) {
 
     if (player_pos.y == new_pos.y && player_pos.x == new_pos.x)
     {
-        // collision();
+        handle_battle(game , monster);
         return;
     }
 
@@ -2731,36 +3260,36 @@ void draw_food_menu(Game *game) {
     mvwprintw(food_win, 1, 10, "🍽 Food 🍽");
 
     
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < 2; i++) {
         char *food_icon;
         int food_count;
 
         switch (i) {
             case 0: {
-                food_icon = "🍎 Apple : ";
-                food_count = game->player.num_apple;
+                food_icon = "🍎 normal_food : ";
+                food_count = game->player.num_normal_food;
                 break;
             }
             case 1: {
-                food_icon = "🥚 Egg : ";
-                food_count = game->player.num_egg;
+                food_icon = "🥚 spoiled_food : ";
+                food_count = game->player.num_spoiled_food;
                 break;
             }
-            case 2: {
-                food_icon = "🍞 Bread : ";
-                food_count = game->player.num_bread;
-                break;
-            }
-            case 3: {
-                food_icon = "🥕 Carrot : ";
-                food_count = game->player.num_carrot;
-                break;
-            }
-            case 4: {
-                food_icon = "🐟 Fish : ";
-                food_count = game->player.num_fish;
-                break;
-            }        }
+            // case 2: {
+            //     food_icon = "🍞 Bread : ";
+            //     food_count = game->player.num_bread;
+            //     break;
+            // }
+            // case 3: {
+            //     food_icon = "🥕 Carrot : ";
+            //     food_count = game->player.num_carrot;
+            //     break;
+            // }
+            // case 4: {
+            //     food_icon = "🐟 Fish : ";
+            //     food_count = game->player.num_fish;
+            //     break;
+            }        
         mvwprintw(food_win, i + 3, 2, "%s %d", food_icon, food_count);
     }
 
@@ -2771,12 +3300,14 @@ void draw_spell_menu(Game *game) {
     if (!spell_menu_visible) return;
 
     int start_x = COLS - 36;
-    int start_y = 20;
+    int start_y = 18;
     int width = 30;
     int height = 10;
 
     WINDOW *spell_win = newwin(height, width, start_y, start_x);
+    wattron(spell_win, COLOR_PAIR(7));
     box(spell_win, 0, 0);
+    wattroff(spell_win, COLOR_PAIR(7));
     mvwprintw(spell_win, 1, 10, "🧙‍♂️ Spells 🔮");
 
 
@@ -2785,17 +3316,17 @@ void draw_spell_menu(Game *game) {
         int spell_count;
 
         switch (i) {
-            case 0: {
+            case 1: {
                 spell_icon = "❤️ Health : ";
                 spell_count = game->player.num_health_spell;
                 break;
             }
-            case 1: {
+            case 2: {
                 spell_icon = "⚡ Damage : ";
                 spell_count = game->player.num_damage_spell;
                 break;
             }
-            case 2: {
+            case 0: {
                 spell_icon = "🏃‍♂️ Speed : ";
                 spell_count = game->player.num_speed_spell;
                 break;
@@ -2811,14 +3342,16 @@ void draw_weapon_menu(Game *game) {
     // if (!weapon_menu_visible) return;
 
     int start_x = COLS - 36; 
-    int start_y = 35; 
+    int start_y = 30; 
     int width = 30;
     int height = 10;
     int choice = weapon_menu_visible;
 
     while (1) {
         WINDOW *weapon_win = newwin(height, width, start_y, start_x);
+        wattron(weapon_win, COLOR_PAIR(5));
         box(weapon_win, 0, 0);
+        wattroff(weapon_win, COLOR_PAIR(5));
         mvwprintw(weapon_win, 1, 10, "🏹 Weapons 🏹");
         wrefresh(weapon_win);
 
@@ -2917,11 +3450,11 @@ void draw_weapon(Weapon *weapon , int start_x , int start_y) {
 void draw_food(Food *food , int start_x , int start_y) {
     char *food_icon;
     switch (food->type) {
-        case FOOD_Apple:  food_icon = ":"; break;
-        case FOOD_Egg:   food_icon = "'"; break;
-        case FOOD_Bread:  food_icon = "🥜"; break;
-        case FOOD_Carot: food_icon = "🥕"; break;
-        case FOOD_Fish:   food_icon = "🍦"; break;
+        case FOOD_NORMAL:  food_icon = "🍦"; break;
+        case FOOD_SPOILED:   food_icon = "🥕"; break;
+        // case FOOD_Bread:  food_icon = "🥜"; break;
+        // case FOOD_Carot: food_icon = "🥕"; break;
+        // case FOOD_Fish:   food_icon = "🍦"; break;
         default:          food_icon = "?"; break;
     }
     mvprintw(food->position.y + start_y, food->position.x + start_x, "%s", food_icon);
@@ -3086,16 +3619,33 @@ void draw_player_info(Game *game) {
     int start_x = 4;
     int start_y = 25;
     int width = 30;
-    int height = 10;
+    int height = 15;
 
     WINDOW *info_win = newwin(height, width, start_y, start_x);
+    wattron(info_win,COLOR_PAIR(8));
     box(info_win, 0, 0);
+    wattroff(info_win,COLOR_PAIR(8));
     mvwprintw(info_win, 1, 8, "📜 Stats 📜");
 
     mvwprintw(info_win, 3, 2, "🏆 Level: %d/%d", game->current_level + 1, game->total_levels);
     mvwprintw(info_win, 5, 2, "⏳ Time: %02d:%02d", game->timer.minute, game->timer.second);
     mvwprintw(info_win, 7, 2, "❤️ HP: %d", game->player.hp);
     mvwprintw(info_win, 9, 2, "💰 Gold: %d", game->player.gold_collected);
+    // wrefresh(info_win);
+    // int hunger_bar_width = 20;
+    // int filled = (game->player.hungry * hunger_bar_width) / MAX_HUNGER;
+    
+    // wattron(info_win, COLOR_PAIR(3));
+    // mvwprintw(info_win, 11, 2, "Hunger: [");
+    // whline(info_win, ' ', hunger_bar_width);
+    // mvwprintw(info_win, 11, 2 + 8 + hunger_bar_width, "]");
+    
+    // wattron(info_win, COLOR_PAIR(2));
+    // mvwaddch(info_win, 11, 2 + 8, ACS_RARROW);
+    // for(int i = 0; i < filled; i++) {
+    //     mvwaddch(info_win, 11, 2 + 9 + i, ACS_CKBOARD);
+    // }
+    // wattroff(info_win, COLOR_PAIR(2));
 
     wrefresh(info_win);
 }
@@ -3103,7 +3653,9 @@ void draw_player_info(Game *game) {
 void draw_message_box(Game* game , int start_x, int start_y, int width, int height){
 
     WINDOW* message_box = newwin(height , width, start_y , start_x);
+    wattron(message_box,COLOR_PAIR(3));
     box(message_box , 0 , 0);
+    wattroff(message_box,COLOR_PAIR(3));
     wrefresh(message_box);
     mvwprintw(message_box , 1 , 6 , "💬 Input Message 💬");
     mvwprintw(message_box , height/2 -1  , 5 , "%s" ,game->game_message);
@@ -3122,17 +3674,17 @@ void draw_game(Game *game) {
     refresh();
     switch (game->player.color)
     {
-    case 1:
+    case 0:
         attron(COLOR_PAIR(5));
         mvaddch(game->player.position.y + start_y, game->player.position.x + start_x, '@');
         attroff(COLOR_PAIR(5));
         break;
-    case 2:
+    case 1:
         attron(COLOR_PAIR(8));
         mvaddch(game->player.position.y + start_y, game->player.position.x + start_x, '@');
         attroff(COLOR_PAIR(8));
         break;
-    case 3:
+    case 2:
         attron(COLOR_PAIR(2));
         mvaddch(game->player.position.y + start_y, game->player.position.x + start_x, '@');
         attroff(COLOR_PAIR(2));
