@@ -288,6 +288,8 @@ int damage2x = 0;
 
 int speed_counter = 10;
 int damage_counter = 10;
+
+int cheatMap = 0;
 // int end_game = 0;
 // int game_victory = 0;
 
@@ -723,6 +725,7 @@ void draw_scoreboard(User user , GameSettings* settings) {
     int max_pages = (num_scores / ENTRIES_PER_PAGE) + (num_scores % ENTRIES_PER_PAGE != 0);
 
     clear();
+    draw_border();
     WINDOW *score_pad = newpad(num_scores + 10, 50);
     
     while (1) {
@@ -1270,7 +1273,7 @@ void init_game(int n , User user , GameSettings *settings){
     Game game;
     if (n==0)
     {
-        game.total_levels = 4;
+        game.total_levels = 5;
         game.current_level = 0;
         int map_width = COLS - 80, map_height = LINES -6, num_rooms = 6 + rand() % (game.current_level + 1);
         game.levels = malloc(5 * sizeof(Level));
@@ -2540,6 +2543,11 @@ void move_player(Game *game, int key) {
         toggle_spell_menu(game);
         return;
     }
+    if (key == 'm')
+    {
+        cheatMap = !cheatMap;
+    }
+    
 
     int shift_active = 0;
 
@@ -2561,17 +2569,38 @@ void move_player(Game *game, int key) {
         speed2x = 0;
     }
     
+    
 
     Position new_pos = game->player.position;
     Level *level = &game->levels[game->current_level];
     char **map = level->map;
     char **drawMap = level->drawMap;
 
-
     if (key == KEY_UP && new_pos.y - move_step >= 0) new_pos.y-= move_step;
     else if (key == KEY_DOWN && new_pos.y + move_step < level->height) new_pos.y+= move_step;
     else if (key == KEY_LEFT && new_pos.x - move_step >= 0) new_pos.x-=move_step;
     else if (key == KEY_RIGHT && new_pos.x + move_step < level->width) new_pos.x+=move_step;
+    else if (key == 'a' && new_pos.y - move_step >= 0 && new_pos.x - move_step >= 0) 
+    {
+        new_pos.y-= move_step;
+        new_pos.x-=move_step;
+    }
+    else if (key == 'w' && new_pos.y - move_step >= 0 && new_pos.x + move_step < level->width) 
+    {
+        new_pos.y-= move_step;
+        new_pos.x+=move_step;
+    }
+    else if (key == 's' && new_pos.y + move_step < level->height && new_pos.x - move_step >= 0) 
+    {
+        new_pos.y+= move_step;
+        new_pos.x-=move_step;
+    }
+    else if (key == 'd' && new_pos.y + move_step < level->height && new_pos.x + move_step < level->width) 
+    {
+        new_pos.y+= move_step;
+        new_pos.x+=move_step;
+    }
+
 
     char next_tile = map[new_pos.y][new_pos.x];
 
@@ -3231,7 +3260,6 @@ int open_pass_door(Room* room , Game* game){
 }
 
 
-
 void toggle_weapon_menu(Game *game) {
     weapon_menu_visible = !weapon_menu_visible;
     draw_game(game);
@@ -3511,7 +3539,16 @@ void draw_map(Level *level) {
 
     for (int y = 0; y < level->height; y++) {
         for (int x = 0; x < level->width; x++) {
-            char tile = level->drawMap[y][x];
+
+            char tile;
+
+            if (cheatMap == 0)
+            {
+                tile = level->drawMap[y][x];
+            }
+            else{
+                tile = level->map[y][x];
+            } 
 
             if (tile == 'G' || tile == 'W' || tile == 'M' || tile == '@' || tile == 'F' || tile == 'S')
             {
